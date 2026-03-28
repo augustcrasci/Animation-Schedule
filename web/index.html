@@ -17,11 +17,18 @@
       <div class="hero-meta">
         <div class="meta-block">
           <span id="meta-active-label" class="meta-label">현재 방영작</span>
-          <strong id="total-count">0</strong>
+          <strong id="total-count" class="meta-value">0편</strong>
+          <small id="total-note" class="meta-sub">-</small>
         </div>
         <div class="meta-block">
           <span id="meta-finished-label" class="meta-label">완결작 DB</span>
-          <strong id="finished-total">0</strong>
+          <strong id="finished-total" class="meta-value">0편</strong>
+          <small id="finished-note" class="meta-sub">-</small>
+        </div>
+        <div class="meta-block meta-status">
+          <span id="meta-status-label" class="meta-label">DB 업데이트</span>
+          <strong id="meta-status-main" class="meta-value">-</strong>
+          <small id="meta-status-sub" class="meta-sub">-</small>
         </div>
       </div>
     </header>
@@ -36,6 +43,7 @@
           <input id="favorites-only" type="checkbox">
           <span id="favorites-only-label">좋아요만 보기</span>
         </label>
+        <div id="favorite-scope-filters" class="day-filters favorite-scope-filters hidden"></div>
         <div class="toolbar-actions">
           <button id="open-favorites" class="ghost-btn" type="button">좋아요</button>
           <button id="theme-toggle" class="ghost-btn" type="button">다크</button>

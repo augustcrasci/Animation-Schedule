@@ -4,7 +4,7 @@ from collections import Counter
 from datetime import datetime
 from typing import Any, Callable
 
-from app.calendar_common import CHANGE_SUMMARY_FILE, COMPILED_DATA_FILE, SOURCE_DATA_FILE, SOURCE_STATE_FILE, load_json, save_json
+from app.calendar_common import CHANGE_SUMMARY_FILE, COMPILED_DATA_FILE, SOURCE_DATA_FILE, SOURCE_STATE_FILE, has_mal_client_id, load_json, save_json
 from app.enrich_external_links import enrich_external_links
 from app.enrich_names import enrich_names
 from app.fetch_seasons import sync_seasons
@@ -275,7 +275,12 @@ def main(
     include_forward: bool = True,
     backfill_per_run_override: int | None = None,
     link_refresh_limit_override: int | None = None,
+    refresh_external_links: bool = True,
+    enrich_japanese_names: bool = True,
 ) -> None:
+    if not has_mal_client_id():
+        raise RuntimeError("MAL_CLIENT_ID is missing. Add your own MAL Client ID to .env before running DB updates.")
+
     if progress_callback:
         progress_callback("Syncing MAL seasons.", "The collector updates source JSON before building web data.")
     sync_seasons(
@@ -284,13 +289,15 @@ def main(
         backfill_per_run_override=backfill_per_run_override,
     )
 
-    if progress_callback:
-        progress_callback("Refreshing official links.", "Missing official pages and X links are being rechecked from MAL HTML.")
-    enrich_external_links(limit=link_refresh_limit_override, progress_callback=progress_callback)
+    if refresh_external_links:
+        if progress_callback:
+            progress_callback("Refreshing official links.", "Missing official pages and X links are being rechecked from MAL HTML.")
+        enrich_external_links(limit=link_refresh_limit_override, progress_callback=progress_callback)
 
-    if progress_callback:
-        progress_callback("Enriching Japanese names.", "AniList native names are being merged into cached cast and staff data.")
-    enrich_names()
+    if enrich_japanese_names:
+        if progress_callback:
+            progress_callback("Enriching Japanese names.", "AniList native names are being merged into cached cast and staff data.")
+        enrich_names()
 
     if progress_callback:
         progress_callback("Loading source data.", "The normalized source JSON is being prepared for the web app.")

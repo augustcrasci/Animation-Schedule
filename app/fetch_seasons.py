@@ -85,6 +85,16 @@ def current_season(today: date | None = None) -> SeasonRef:
     return SeasonRef(today.year, "fall")
 
 
+def season_for_month(month: int) -> str:
+    if month <= 3:
+        return "winter"
+    if month <= 6:
+        return "spring"
+    if month <= 9:
+        return "summer"
+    return "fall"
+
+
 def state_or_default() -> dict[str, Any]:
     seed_year = int(get_env("ANIME_SYNC_START_YEAR", "2026") or "2026")
     seed_season = normalize_season_name(get_env("ANIME_SYNC_START_SEASON", "spring") or "spring")
@@ -105,6 +115,32 @@ def season_from_dict(value: dict[str, Any] | None, fallback: SeasonRef) -> Seaso
     if not value:
         return fallback
     return SeasonRef(int(value["year"]), normalize_season_name(value["season"]))
+
+
+def infer_node_season(detail: dict[str, Any], fallback: SeasonRef | None = None) -> SeasonRef | None:
+    start_season = detail.get("start_season") or {}
+    start_year = start_season.get("year")
+    start_name = start_season.get("season")
+    if start_year and start_name:
+        try:
+            return SeasonRef(int(start_year), normalize_season_name(str(start_name)))
+        except ValueError:
+            pass
+
+    start_date_text = str(detail.get("start_date") or "").strip()
+    if start_date_text:
+        parts = start_date_text.split("-")
+        if len(parts) >= 2 and parts[0] and parts[1]:
+            return SeasonRef(int(parts[0]), season_for_month(int(parts[1])))
+
+    return fallback
+
+
+def matches_target_season(detail: dict[str, Any], ref: SeasonRef, *, strict: bool = False) -> bool:
+    actual = infer_node_season(detail, None if strict else ref)
+    if actual is None:
+        return not strict
+    return actual.year == ref.year and actual.season == ref.season
 
 
 def infer_schedule(detail: dict[str, Any], ref: SeasonRef) -> dict[str, str | None]:
@@ -160,6 +196,44 @@ def parse_partial_date(raw_value: str, ref: SeasonRef) -> date:
     return date(ref.year, SEASON_MONTH[ref.season], 1)
 
 
+def detect_start_date_precision(raw_value: str | None) -> str:
+    text = str(raw_value or "").strip()
+    if not text:
+        return "unknown"
+    parts = [part for part in text.split("-") if part]
+    if len(parts) >= 3:
+        return "day"
+    if len(parts) == 2:
+        return "month"
+    if len(parts) == 1:
+        return "year"
+    return "unknown"
+
+
+def infer_schedule_meta(detail: dict[str, Any], ref: SeasonRef) -> dict[str, Any]:
+    raw_start_date = str(detail.get("start_date") or "").strip() or None
+    broadcast = detail.get("broadcast") or {}
+    start_time = str(broadcast.get("start_time") or "").strip()
+    time_known = bool(start_time and start_time != "None")
+    precision = detect_start_date_precision(raw_start_date)
+
+    if precision == "day":
+        confidence = "confirmed"
+    elif precision in {"month", "year"}:
+        confidence = "seasonal"
+    else:
+        confidence = "tentative"
+
+    inferred_season = infer_node_season(detail, ref)
+    return {
+        "raw_start_date": raw_start_date,
+        "date_precision": precision,
+        "time_known": time_known,
+        "schedule_confidence": confidence,
+        "inferred_season": {"year": inferred_season.year, "season": inferred_season.season} if inferred_season else None,
+    }
+
+
 def choose_titles(detail: dict[str, Any], page_titles: dict[str, str | None]) -> dict[str, Any]:
     alternatives = detail.get("alternative_titles") or {}
     synonyms = alternatives.get("synonyms") or []
@@ -200,6 +274,7 @@ def build_entry(
     preserved_credits = existing_credits(existing_entry)
     parsed_characters = extract_characters(credits_html) if credits_html else []
     parsed_staff = extract_staff(credits_html) if credits_html else []
+    schedule_meta = infer_schedule_meta(node, ref)
 
     return {
         "id": f"mal-anime-{anime_id}",
@@ -242,6 +317,7 @@ def build_entry(
             "links": {
                 "x": external_links.get("x"),
             },
+            "schedule_meta": schedule_meta,
             "credits": {
                 "characters": parsed_characters or preserved_credits["characters"],
                 "staff": parsed_staff or preserved_credits["staff"],
@@ -298,23 +374,17 @@ def build_target_seasons(
     backfill_per_run_override: int | None = None,
 ) -> list[SeasonRef]:
     seed = season_from_dict(state.get("seed"), SeasonRef(2026, "spring"))
-    forward_frontier = next_season(current_season())
-    latest_forward = season_from_dict(state.get("latest_forward"), seed)
-    refresh_recent = max(1, int(get_env("ANIME_REFRESH_RECENT_SEASONS", "2") or "2"))
+    current_ref = current_season()
+    latest_forward = season_from_dict(state.get("latest_forward"), next_season(current_ref))
+    if season_cmp(latest_forward, current_ref) < 0:
+        latest_forward = current_ref
 
     targets: list[SeasonRef] = []
     if include_forward:
-        cursor = latest_forward
-        while season_cmp(cursor, forward_frontier) <= 0:
+        cursor = current_ref
+        while season_cmp(cursor, latest_forward) <= 0:
             targets.append(cursor)
             cursor = next_season(cursor)
-
-        recent_cursor = forward_frontier
-        for _ in range(refresh_recent):
-            if recent_cursor.year < 1900:
-                break
-            targets.append(recent_cursor)
-            recent_cursor = previous_season(recent_cursor)
 
     backfill_per_run = backfill_per_run_override
     if backfill_per_run is None:
@@ -334,6 +404,28 @@ def build_target_seasons(
         seen.add(target.key)
         unique_targets.append(target)
     return unique_targets
+
+
+def discover_future_seasons(client: MalClient, start_from: SeasonRef) -> list[SeasonRef]:
+    max_forward_scan = max(0, int(get_env("ANIME_FUTURE_SEASON_SCAN_LIMIT", "12") or "12"))
+    discovered: list[SeasonRef] = []
+    cursor = next_season(start_from)
+
+    for _ in range(max_forward_scan):
+        try:
+            season_nodes = client.get_season(cursor.year, cursor.season)
+        except MalClientError:
+            break
+        relevant_nodes = [
+            node for node in season_nodes
+            if should_keep_media_type(node) and matches_target_season(node, cursor, strict=True)
+        ]
+        if not relevant_nodes:
+            break
+        discovered.append(cursor)
+        cursor = next_season(cursor)
+
+    return discovered
 
 
 def sync_seasons(
@@ -359,6 +451,20 @@ def sync_seasons(
         include_forward=include_forward,
         backfill_per_run_override=backfill_per_run_override,
     )
+    if include_forward:
+        forward_anchor = season_from_dict(state.get("latest_forward"), next_season(current_season()))
+        if season_cmp(forward_anchor, current_season()) < 0:
+            forward_anchor = current_season()
+        targets.extend(discover_future_seasons(client, forward_anchor))
+
+    unique_targets: list[SeasonRef] = []
+    seen_targets: set[str] = set()
+    for target in targets:
+        if target.key in seen_targets:
+            continue
+        seen_targets.add(target.key)
+        unique_targets.append(target)
+    targets = unique_targets
     completed = set(state.get("completed_seasons", []))
 
     for target_index, target in enumerate(targets, start=1):
@@ -369,7 +475,11 @@ def sync_seasons(
             )
 
         season_nodes = client.get_season(target.year, target.season)
-        relevant_nodes = [node for node in season_nodes if should_keep_media_type(node)]
+        strict_future_filter = season_cmp(target, next_season(current_season())) > 0
+        relevant_nodes = [
+            node for node in season_nodes
+            if should_keep_media_type(node) and matches_target_season(node, target, strict=strict_future_filter)
+        ]
 
         for item_index, node in enumerate(relevant_nodes, start=1):
             anime_id = int(node["id"])
@@ -400,7 +510,13 @@ def sync_seasons(
         completed.add(target.key)
 
     seed = season_from_dict(state.get("seed"), SeasonRef(2026, "spring"))
-    latest_forward = next_season(current_season()) if include_forward else season_from_dict(state.get("latest_forward"), seed)
+    latest_forward = season_from_dict(state.get("latest_forward"), seed)
+    if include_forward and targets:
+        latest_forward = max(
+            [target for target in targets if season_cmp(target, current_season()) >= 0],
+            key=lambda item: (item.year, SEASONS.index(item.season)),
+            default=latest_forward,
+        )
     current_backfill = season_from_dict(state.get("next_backfill"), previous_season(seed))
     backfill_per_run = backfill_per_run_override
     if backfill_per_run is None:

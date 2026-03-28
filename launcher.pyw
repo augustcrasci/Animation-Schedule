@@ -4,18 +4,47 @@ import subprocess
 import sys
 import threading
 import tkinter as tk
+from datetime import datetime
 from pathlib import Path
 from tkinter import messagebox
 
-from app.calendar_common import PID_FILE, ROOT_DIR
+from app.calendar_common import COMPILED_DATA_FILE, PID_FILE, ROOT_DIR, SOURCE_STATE_FILE, has_mal_client_id, load_json
 from app.refresh_all import main as refresh_all_main
 
 
-MODE_LABELS = {
-    "update": "데이터 업데이트",
-    "backfill_year": "과거 1년 백필",
-    "viewer": "뷰어 실행",
-    "update_and_viewer": "업데이트 후 뷰어 실행",
+SEASON_LABELS = {
+    "WINTER": "겨울",
+    "SPRING": "봄",
+    "SUMMER": "여름",
+    "FALL": "가을",
+}
+
+ACTION_META = {
+    "viewer": {
+        "title": "현재 DB로 뷰어 열기",
+        "detail": "저장된 DB로 바로 엽니다.",
+        "button": "뷰어 열기",
+    },
+    "update_fast": {
+        "title": "빠른 최신 갱신",
+        "detail": "이번 분기와 미래 분기만 빠르게 갱신합니다.",
+        "button": "빠른 갱신",
+    },
+    "update": {
+        "title": "최신 시즌 풀 재동기화",
+        "detail": "이번 분기와 미래 분기를 링크/이름 보강까지 다시 갱신합니다.",
+        "button": "풀 재동기화",
+    },
+    "update_and_viewer": {
+        "title": "최신 시즌 풀 재동기화 후 뷰어 열기",
+        "detail": "풀 재동기화 완료 후 바로 뷰어를 엽니다.",
+        "button": "갱신 후 열기",
+    },
+    "backfill_year": {
+        "title": "과거 1년치 추가 수집",
+        "detail": "과거 시즌 4개를 추가 저장합니다.",
+        "button": "과거 1년 추가",
+    },
 }
 
 
@@ -55,74 +84,172 @@ def launch_viewer_process() -> None:
     )
 
 
+def format_timestamp(value: str | None) -> str:
+    if not value:
+        return "기록 없음"
+    try:
+        dt = datetime.fromisoformat(value)
+        return dt.strftime("%Y-%m-%d %H:%M")
+    except ValueError:
+        return str(value)
+
+
+def format_season_ref(value: dict[str, object] | None) -> str:
+    if not value:
+        return "기록 없음"
+    year = value.get("year")
+    season = value.get("quarter") or value.get("season")
+    if not year or not season:
+        return "기록 없음"
+    return f"{year} {SEASON_LABELS.get(str(season).upper(), str(season))}"
+
+
+def load_launcher_status() -> dict[str, str]:
+    source_state = load_json(SOURCE_STATE_FILE, {})
+    compiled = load_json(COMPILED_DATA_FILE, {})
+    collector_status = compiled.get("collector_status", {}) if isinstance(compiled, dict) else {}
+    summary = compiled.get("summary", {}) if isinstance(compiled, dict) else {}
+
+    total_entries = summary.get("total_entries")
+    total_entries_text = f"{total_entries:,}개 작품" if isinstance(total_entries, int) else "기록 없음"
+
+    return {
+        "last_live_sync": format_timestamp(
+            collector_status.get("last_live_sync_at") or source_state.get("last_successful_sync_at")
+        ),
+        "last_build": format_timestamp(compiled.get("generated_at") if isinstance(compiled, dict) else None),
+        "oldest_completed": format_season_ref(collector_status.get("oldest_completed_season")),
+        "next_backfill": format_season_ref(
+            collector_status.get("next_backfill") or source_state.get("next_backfill")
+        ),
+        "total_entries": total_entries_text,
+    }
+
+
 class LauncherApp:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
         self.root.title("애니메이션 캘린더")
         self.root.resizable(False, False)
-        self.root.configure(bg="#fff7ed")
+        self.root.configure(bg="#edf4ff")
+
         self.status_var = tk.StringVar(value="실행할 작업을 선택해 주세요.")
-        self.detail_var = tk.StringVar(value="라이브 업데이트와 과거 백필을 분리한 로컬 수집기입니다.")
-        self.buttons: list[tk.Button] = []
+        self.detail_var = tk.StringVar(value="최신 갱신, 풀 재동기화, 과거 백필을 분리해서 실행할 수 있습니다.")
+        self.credential_var = tk.StringVar()
+        self.db_status_var = tk.StringVar()
+        self.backfill_var = tk.StringVar()
+        self.build_var = tk.StringVar()
+        self.buttons_by_mode: dict[str, tk.Button] = {}
 
-        frame = tk.Frame(root, bg="#fffdf8", padx=18, pady=18, bd=1, relief="solid")
-        frame.pack(padx=18, pady=18)
+        outer = tk.Frame(root, bg="#edf4ff", padx=18, pady=18)
+        outer.pack(fill="both", expand=True)
 
-        tk.Label(frame, text="애니메이션 캘린더", font=("Malgun Gothic", 13, "bold"), bg="#fffdf8", fg="#172033").pack(anchor="w")
+        card = tk.Frame(outer, bg="#fcfdff", padx=20, pady=20, bd=1, relief="solid", highlightthickness=0)
+        card.pack(fill="both", expand=True)
+
+        tk.Label(card, text="애니메이션 캘린더", font=("Malgun Gothic", 15, "bold"), bg="#fcfdff", fg="#16233a").pack(anchor="w")
+        tk.Frame(card, height=8, bg="#fcfdff").pack()
+
+        actions_frame = tk.Frame(card, bg="#fcfdff")
+        actions_frame.pack(fill="x")
+
+        for mode in ("viewer", "update_fast", "update", "update_and_viewer", "backfill_year"):
+            self._make_action_row(actions_frame, mode)
+
+        status_box = tk.Frame(card, bg="#f3f7ff", padx=12, pady=12, bd=1, relief="solid")
+        status_box.pack(fill="x", pady=(14, 0))
+        tk.Label(status_box, text="현재 DB 상태", font=("Malgun Gothic", 10, "bold"), bg="#f3f7ff", fg="#16233a").pack(anchor="w")
+        tk.Label(status_box, textvariable=self.credential_var, font=("Malgun Gothic", 9, "bold"), bg="#f3f7ff", fg="#28446d").pack(anchor="w", pady=(6, 0))
+        tk.Label(status_box, textvariable=self.db_status_var, font=("Malgun Gothic", 9), bg="#f3f7ff", fg="#3e4d66", justify="left").pack(anchor="w", pady=(4, 0))
+        tk.Label(status_box, textvariable=self.backfill_var, font=("Malgun Gothic", 9), bg="#f3f7ff", fg="#3e4d66", justify="left").pack(anchor="w", pady=(2, 0))
+        tk.Label(status_box, textvariable=self.build_var, font=("Malgun Gothic", 9), bg="#f3f7ff", fg="#3e4d66", justify="left").pack(anchor="w", pady=(6, 0))
+
+        bottom = tk.Frame(card, bg="#fcfdff")
+        bottom.pack(fill="x", pady=(14, 0))
         tk.Label(
-            frame,
-            text="일본 최속 방영표와 과거 시즌 백필을 로컬에서 관리합니다.",
-            font=("Malgun Gothic", 9),
-            bg="#fffdf8",
-            fg="#6b7280",
-        ).pack(anchor="w", pady=(4, 14))
-
-        self.buttons.append(self._make_button(frame, "데이터 업데이트만", lambda: self.start("update")))
-        self.buttons.append(self._make_button(frame, "과거 1년 백필", lambda: self.start("backfill_year")))
-        self.buttons.append(self._make_button(frame, "뷰어만 실행", lambda: self.start("viewer")))
-        self.buttons.append(self._make_button(frame, "업데이트 후 뷰어", lambda: self.start("update_and_viewer")))
-
-        tk.Label(
-            frame,
+            bottom,
             textvariable=self.status_var,
             justify="left",
-            wraplength=320,
+            wraplength=420,
             font=("Malgun Gothic", 9, "bold"),
-            bg="#fffdf8",
-            fg="#374151",
-        ).pack(anchor="w", pady=(14, 2))
+            bg="#fcfdff",
+            fg="#263349",
+        ).pack(anchor="w")
         tk.Label(
-            frame,
+            bottom,
             textvariable=self.detail_var,
             justify="left",
-            wraplength=320,
+            wraplength=420,
             font=("Malgun Gothic", 9),
-            bg="#fffdf8",
-            fg="#6b7280",
-        ).pack(anchor="w")
+            bg="#fcfdff",
+            fg="#627089",
+        ).pack(anchor="w", pady=(4, 0))
 
-    def _make_button(self, parent: tk.Widget, text: str, command) -> tk.Button:
+        self.refresh_status_panel()
+
+    def _make_action_row(self, parent: tk.Widget, mode: str) -> None:
+        meta = ACTION_META[mode]
+        row = tk.Frame(parent, bg="#ffffff", padx=12, pady=10, bd=1, relief="solid")
+        row.pack(fill="x", pady=5)
+
+        text_col = tk.Frame(row, bg="#ffffff")
+        text_col.pack(side="left", fill="both", expand=True)
+
+        tk.Label(text_col, text=meta["title"], font=("Malgun Gothic", 10, "bold"), bg="#ffffff", fg="#16233a").pack(anchor="w")
+        tk.Label(
+            text_col,
+            text=meta["detail"],
+            font=("Malgun Gothic", 9),
+            bg="#ffffff",
+            fg="#5b6578",
+            justify="left",
+            wraplength=300,
+        ).pack(anchor="w", pady=(4, 0))
+
         button = tk.Button(
-            parent,
-            text=text,
-            command=command,
-            width=24,
+            row,
+            text=meta["button"],
+            command=lambda selected_mode=mode: self.start(selected_mode),
+            width=14,
             pady=6,
-            bg="#172033",
+            bg="#1c5bd6",
             fg="#ffffff",
-            activebackground="#314158",
+            activebackground="#184db5",
             activeforeground="#ffffff",
             relief="flat",
             cursor="hand2",
-            font=("Malgun Gothic", 10, "bold"),
+            font=("Malgun Gothic", 9, "bold"),
         )
-        button.pack(fill="x", pady=4)
-        return button
+        button.pack(side="right", padx=(12, 0))
+        self.buttons_by_mode[mode] = button
+
+    def refresh_status_panel(self) -> None:
+        status = load_launcher_status()
+        has_key = has_mal_client_id()
+
+        if has_key:
+            self.credential_var.set("본인 MAL Client ID가 설정되어 있습니다. 최신 갱신과 과거 백필을 실행할 수 있습니다.")
+        else:
+            self.credential_var.set("MAL Client ID가 없습니다. 현재 DB로 뷰어만 열 수 있고, DB 업데이트는 비활성화됩니다.")
+
+        self.db_status_var.set(
+            f"최신 시즌 갱신 기준: {status['last_live_sync']} | 현재 저장 작품 수: {status['total_entries']}"
+        )
+        self.backfill_var.set(
+            f"과거 백필 완료 범위: {status['oldest_completed']}까지 | 다음 백필 목표: {status['next_backfill']}"
+        )
+        self.build_var.set(f"마지막 compiled 빌드: {status['last_build']}")
+
+        for mode, button in self.buttons_by_mode.items():
+            is_update_action = mode in {"update_fast", "update", "backfill_year", "update_and_viewer"}
+            button.configure(state=tk.NORMAL if (has_key or not is_update_action) else tk.DISABLED)
 
     def set_busy(self, busy: bool) -> None:
-        state = tk.DISABLED if busy else tk.NORMAL
-        for button in self.buttons:
-            button.configure(state=state)
+        if busy:
+            for button in self.buttons_by_mode.values():
+                button.configure(state=tk.DISABLED)
+            return
+        self.refresh_status_panel()
 
     def set_progress(self, message: str, detail: str = "") -> None:
         self.root.after(0, lambda: self._apply_progress(message, detail))
@@ -133,45 +260,67 @@ class LauncherApp:
 
     def start(self, mode: str) -> None:
         self.set_busy(True)
-        self._apply_progress(f"{MODE_LABELS[mode]} 중입니다.", "잠시만 기다려 주세요.")
+        self._apply_progress(f"{ACTION_META[mode]['title']} 실행 중입니다.", ACTION_META[mode]["detail"])
         threading.Thread(target=self.run_mode, args=(mode,), daemon=True).start()
 
     def run_mode(self, mode: str) -> None:
         try:
             if mode == "viewer":
-                self.set_progress("뷰어를 실행하는 중입니다.", "브라우저를 여는 중입니다.")
+                self.set_progress("현재 저장된 DB로 뷰어를 여는 중입니다.", "브라우저를 여는 중입니다.")
                 launch_viewer_process()
                 self.root.after(0, self.finish_viewer_launch)
+                return
+
+            if mode == "update_fast":
+                refresh_all_main(
+                    progress_callback=self.set_progress,
+                    include_forward=True,
+                    backfill_per_run_override=0,
+                    refresh_external_links=False,
+                    enrich_japanese_names=False,
+                )
+                self.root.after(0, lambda: self.finish_update("빠른 최신 갱신이 완료되었습니다."))
                 return
 
             if mode == "backfill_year":
-                refresh_all_main(progress_callback=self.set_progress, include_forward=False, backfill_per_run_override=4, link_refresh_limit_override=320)
-                self.root.after(0, self.finish_update)
+                refresh_all_main(
+                    progress_callback=self.set_progress,
+                    include_forward=False,
+                    backfill_per_run_override=4,
+                    link_refresh_limit_override=320,
+                )
+                self.root.after(0, lambda: self.finish_update("과거 1년치 추가 수집이 완료되었습니다."))
                 return
 
-            refresh_all_main(progress_callback=self.set_progress)
+            refresh_all_main(
+                progress_callback=self.set_progress,
+                include_forward=True,
+                backfill_per_run_override=0,
+            )
             if mode == "update_and_viewer":
-                self.set_progress("데이터 빌드가 완료되었습니다.", "브라우저를 여는 중입니다.")
+                self.set_progress("최신 시즌 풀 재동기화가 완료되었습니다.", "갱신된 DB로 뷰어를 여는 중입니다.")
                 launch_viewer_process()
                 self.root.after(0, self.finish_viewer_launch)
                 return
-            self.root.after(0, self.finish_update)
+            self.root.after(0, lambda: self.finish_update("최신 시즌 풀 재동기화가 완료되었습니다."))
         except Exception as exc:
             self.root.after(0, lambda: self.show_error(exc))
 
-    def finish_update(self) -> None:
+    def finish_update(self, message: str) -> None:
         self.set_busy(False)
-        self._apply_progress("데이터 업데이트가 완료되었습니다.", "compiled JSON과 변경 요약이 저장되었습니다.")
-        messagebox.showinfo("완료", "데이터 업데이트가 완료되었습니다.")
+        self._apply_progress(message, "현재 DB 상태와 백필 범위를 다시 읽어왔습니다.")
+        messagebox.showinfo("완료", message)
 
     def finish_viewer_launch(self) -> None:
+        self.set_busy(False)
         self._apply_progress("뷰어를 실행했습니다.", "브라우저에서 방영표를 확인해 주세요.")
         self.root.after(300, self.root.destroy)
 
     def show_error(self, exc: Exception) -> None:
         self.set_busy(False)
-        self._apply_progress("작업 중 오류가 발생했습니다.", str(exc))
-        messagebox.showerror("오류", str(exc))
+        message = str(exc).strip() or "알 수 없는 오류가 발생했습니다. 터미널 로그를 확인해 주세요."
+        self._apply_progress("작업 중 오류가 발생했습니다.", message)
+        messagebox.showerror("오류", message)
 
 
 def main() -> None:

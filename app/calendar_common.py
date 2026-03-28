@@ -43,6 +43,11 @@ def get_env(name: str, default: str | None = None) -> str | None:
     return os.environ.get(name, default)
 
 
+def has_mal_client_id() -> bool:
+    value = get_env("MAL_CLIENT_ID", "") or ""
+    return bool(str(value).strip())
+
+
 def load_json(path: str | Path, default: Any) -> Any:
     target = Path(path)
     if not target.is_absolute():

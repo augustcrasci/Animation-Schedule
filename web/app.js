@@ -18,6 +18,8 @@ const FINISHED_STATUSES = new Set(["finished_airing", "ended"]);
 const VIEW_STORAGE_KEY = "anime_calendar_view";
 const FAVORITES_STORAGE_KEY = "anime_calendar_favorites";
 const PERSON_FAVORITES_STORAGE_KEY = "anime_calendar_person_favorites";
+const STUDIO_FAVORITES_STORAGE_KEY = "anime_calendar_studio_favorites";
+const FAVORITE_SCOPE_ORDER = ["TITLE", "CAST", "STAFF", "STUDIO"];
 const LANG_STORAGE_KEY = "anime_calendar_lang";
 const THEME_STORAGE_KEY = "anime_calendar_theme";
 const UI_STATE_STORAGE_KEY = "anime_calendar_ui_state";
@@ -33,9 +35,14 @@ const TEXT = {
     backfillMeta: "과거 백필 범위",
     activeMeta: "현재 방영작",
     finishedMeta: "완결작 DB",
+    metaStatus: "DB 업데이트",
     searchLabel: "검색",
     searchPlaceholder: "제목, 스태프, 제작사 등 검색",
     favoritesOnly: "좋아요만 보기",
+    favoriteScopeTitle: "작품",
+    favoriteScopeCast: "캐스트",
+    favoriteScopeStaff: "스태프",
+    favoriteScopeStudio: "회사",
     yearFilter: "연도",
     allYears: "전체 연도",
     mediaAll: "전체 타입",
@@ -80,6 +87,11 @@ const TEXT = {
     upcoming: "방영예정",
     finished: "완결",
     unknown: "미정",
+    scheduleConfirmed: "방영일 확정",
+    scheduleSeasonal: "분기 예정",
+    scheduleTentative: "상세 미정",
+    upcomingSeasonalTitle: "분기 예정작",
+    upcomingSeasonalText: "정확한 방영일이나 시간이 아직 공개되지 않은 작품입니다.",
     episodes: "총 화수",
     plannedEpisodes: "기획 화수",
     synopsis: "시놉시스",
@@ -110,9 +122,14 @@ const TEXT = {
     backfillMeta: "Backfill Through",
     activeMeta: "Active Titles",
     finishedMeta: "Finished Library",
+    metaStatus: "DB Status",
     searchLabel: "Search",
     searchPlaceholder: "Search titles, staff, studios...",
     favoritesOnly: "Favorites only",
+    favoriteScopeTitle: "Titles",
+    favoriteScopeCast: "Cast",
+    favoriteScopeStaff: "Staff",
+    favoriteScopeStudio: "Studios",
     yearFilter: "Year",
     allYears: "All Years",
     mediaAll: "All Types",
@@ -157,6 +174,11 @@ const TEXT = {
     upcoming: "Upcoming",
     finished: "Finished",
     unknown: "Unknown",
+    scheduleConfirmed: "Confirmed",
+    scheduleSeasonal: "Seasonal",
+    scheduleTentative: "Tentative",
+    upcomingSeasonalTitle: "Seasonal Upcoming",
+    upcomingSeasonalText: "Titles announced for a season without a stable date or time yet.",
     episodes: "Episodes",
     plannedEpisodes: "Planned Episodes",
     synopsis: "Synopsis",
@@ -199,11 +221,20 @@ function normalizeSelectedMedia(value) {
   return [];
 }
 
+function normalizeFavoriteScopes(value) {
+  if (!Array.isArray(value)) {
+    return [...FAVORITE_SCOPE_ORDER];
+  }
+  const normalized = value.filter((item) => FAVORITE_SCOPE_ORDER.includes(item));
+  return normalized.length ? normalized : [...FAVORITE_SCOPE_ORDER];
+}
+
 const state = {
   dataset: null,
   entries: [],
   entryIndex: new Map(),
   peopleIndex: new Map(),
+  studioIndex: new Map(),
   currentDetailEntryId: null,
   viewMode: localStorage.getItem(VIEW_STORAGE_KEY) || "board",
   movieTab: savedUiState.movieTab || "now",
@@ -212,6 +243,7 @@ const state = {
   selectedYear: savedUiState.selectedYear || "ALL",
   selectedSeason: savedUiState.selectedSeason || "ALL",
   selectedMedia: normalizeSelectedMedia(savedUiState.selectedMedia),
+  selectedFavoriteScopes: normalizeFavoriteScopes(savedUiState.selectedFavoriteScopes),
   search: savedUiState.search || "",
   favoritesOnly: Boolean(savedUiState.favoritesOnly),
   activeCount: 0,
@@ -228,6 +260,7 @@ function persistUiState() {
     selectedYear: state.selectedYear,
     selectedSeason: state.selectedSeason,
     selectedMedia: state.selectedMedia,
+    selectedFavoriteScopes: state.selectedFavoriteScopes,
     search: state.search,
     favoritesOnly: state.favoritesOnly,
   }));
@@ -287,6 +320,64 @@ function formatCount(value) {
   return state.lang === "ko" ? `${value}작` : `${value} titles`;
 }
 
+function formatEntryCount(value) {
+  return state.lang === "ko" ? `${value}편` : `${value} titles`;
+}
+
+function activeMetaNote() {
+  return state.lang === "ko" ? "주간 방영표 기준 표시 작품 수" : "Visible on the weekly schedule";
+}
+
+function finishedMetaNote() {
+  const oldestSeason = formatCollectorSeason(state.dataset?.collector_status?.oldest_completed_season);
+  if (oldestSeason === "-") {
+    return state.lang === "ko" ? "과거 수집 범위 기록 없음" : "No backfill range recorded";
+  }
+  return state.lang === "ko" ? `${oldestSeason}까지 수집` : `Collected through ${oldestSeason}`;
+}
+
+function metaStatusSubtext() {
+  const nextBackfill = formatCollectorSeason(state.dataset?.collector_status?.next_backfill);
+  if (nextBackfill === "-") {
+    return state.lang === "ko" ? "다음 백필 목표가 없습니다." : "No next backfill target.";
+  }
+  return state.lang === "ko" ? `다음 과거 백필: ${nextBackfill}` : `Next backfill: ${nextBackfill}`;
+}
+
+function favoriteScopeLabel(scope) {
+  if (scope === "TITLE") {
+    return t("favoriteScopeTitle");
+  }
+  if (scope === "CAST") {
+    return t("favoriteScopeCast");
+  }
+  if (scope === "STAFF") {
+    return t("favoriteScopeStaff");
+  }
+  if (scope === "STUDIO") {
+    return t("favoriteScopeStudio");
+  }
+  return scope;
+}
+
+function favoriteScopeMatches(info) {
+  return state.selectedFavoriteScopes.some((scope) => {
+    if (scope === "TITLE") {
+      return info.title;
+    }
+    if (scope === "CAST") {
+      return info.cast.length > 0;
+    }
+    if (scope === "STAFF") {
+      return info.staff.length > 0;
+    }
+    if (scope === "STUDIO") {
+      return info.studios.length > 0;
+    }
+    return false;
+  });
+}
+
 function mediaPriority(entry) {
   const mediaType = String(entry.extensions?.media_type || entry.entity_type || "").toLowerCase();
   return MEDIA_PRIORITY[mediaType] ?? 9;
@@ -314,6 +405,38 @@ function getPersonFavoriteSet() {
 
 function savePersonFavoriteSet(set) {
   localStorage.setItem(PERSON_FAVORITES_STORAGE_KEY, JSON.stringify([...set]));
+}
+
+function getStudioFavoriteSet() {
+  try {
+    return new Set(JSON.parse(localStorage.getItem(STUDIO_FAVORITES_STORAGE_KEY) || "[]"));
+  } catch {
+    return new Set();
+  }
+}
+
+function saveStudioFavoriteSet(set) {
+  localStorage.setItem(STUDIO_FAVORITES_STORAGE_KEY, JSON.stringify([...set]));
+}
+
+function buildStudioIndex(entries) {
+  const index = new Map();
+  entries.forEach((entry) => {
+    (entry.extensions?.studios || []).forEach((studioName) => {
+      const name = String(studioName || "").trim();
+      if (!name) {
+        return;
+      }
+      if (!index.has(name)) {
+        index.set(name, { id: name, name, entry_ids: [] });
+      }
+      const studio = index.get(name);
+      if (!studio.entry_ids.includes(entry.id)) {
+        studio.entry_ids.push(entry.id);
+      }
+    });
+  });
+  return index;
 }
 
 function escapeHtml(value) {
@@ -447,6 +570,34 @@ function totalEpisodeLabel(entry) {
   return state.lang === "ko" ? `${totalEpisodes}화` : `${totalEpisodes} eps`;
 }
 
+function inferScheduleConfidence(entry) {
+  const stored = String(entry.extensions?.schedule_meta?.schedule_confidence || "").trim().toLowerCase();
+  if (stored === "confirmed" || stored === "seasonal" || stored === "tentative") {
+    return stored;
+  }
+
+  const rawStartDate = String(entry.extensions?.schedule_meta?.raw_start_date || "").trim();
+  const parts = rawStartDate ? rawStartDate.split("-").filter(Boolean) : [];
+  if (parts.length >= 3) {
+    return "confirmed";
+  }
+  if (parts.length > 0) {
+    return "seasonal";
+  }
+  return statusPriority(entry) === 1 ? "tentative" : "confirmed";
+}
+
+function scheduleConfidenceLabel(entry) {
+  const confidence = entry.schedule_confidence || inferScheduleConfidence(entry);
+  if (confidence === "confirmed") {
+    return t("scheduleConfirmed");
+  }
+  if (confidence === "seasonal") {
+    return t("scheduleSeasonal");
+  }
+  return t("scheduleTentative");
+}
+
 function normalizeEntry(entry) {
   const schedule = entry.schedule || {};
   const titles = entry.titles || {};
@@ -462,6 +613,7 @@ function normalizeEntry(entry) {
     time_sort_value: timeValue === "99:99" ? Number.MAX_SAFE_INTEGER : hours * 60 + minutes,
     season_sort_value: seasonSortValue(entry),
     finished: isFinished(entry),
+    schedule_confidence: inferScheduleConfidence(entry),
     search_text: entry.search_text || [
       entry.id,
       titles.ja,
@@ -567,6 +719,7 @@ async function loadData() {
   state.entries = (payload.entries || []).map(normalizeEntry).sort(compareEntries);
   state.entryIndex = new Map(state.entries.map((entry) => [entry.id, entry]));
   state.peopleIndex = new Map((((payload.indexes || {}).people) || []).map((person) => [String(person.id), person]));
+  state.studioIndex = buildStudioIndex(state.entries);
   state.activeCount = state.entries.filter((entry) => !entry.finished && !isMovie(entry)).length;
   state.finishedCount = state.entries.filter((entry) => entry.finished && !isMovie(entry)).length;
   render();
@@ -582,8 +735,11 @@ function matchesBaseFilters(entry, favorites, options = {}) {
       return false;
     }
   }
-  if (state.favoritesOnly && !favorites.has(entry.favorite_key)) {
-    return false;
+  if (state.favoritesOnly) {
+    const favoriteInfo = options.favoriteInfo || getFavoriteRelationInfo(entry, favorites, options.personFavorites, options.studioFavorites);
+    if (!favoriteScopeMatches(favoriteInfo)) {
+      return false;
+    }
   }
   if (applyYearFilter && state.selectedYear !== "ALL" && String(entry.season?.year || "") !== state.selectedYear) {
     return false;
@@ -601,6 +757,65 @@ function matchesBaseFilters(entry, favorites, options = {}) {
   return true;
 }
 
+function getFavoriteRelationInfo(entry, favorites = getFavoriteSet(), personFavorites = getPersonFavoriteSet(), studioFavorites = getStudioFavoriteSet()) {
+  const cast = [];
+  const staff = [];
+  const studios = [];
+
+  (entry.extensions?.credits?.characters || []).forEach((item) => {
+    const personId = String(item.voice_actor_mal_id || "");
+    if (personId && personFavorites.has(personId)) {
+      cast.push(formatDisplayName(item.voice_actor_name_ja, item.voice_actor_name));
+    }
+  });
+
+  (entry.extensions?.credits?.staff || []).forEach((item) => {
+    const personId = String(item.person_mal_id || "");
+    if (personId && personFavorites.has(personId)) {
+      staff.push(`${formatDisplayName(item.name_ja, item.name)}${item.role ? ` / ${item.role}` : ""}`);
+    }
+  });
+
+  (entry.extensions?.studios || []).forEach((studioName) => {
+    const name = String(studioName || "").trim();
+    if (name && studioFavorites.has(name)) {
+      studios.push(name);
+    }
+  });
+
+  return {
+    title: favorites.has(entry.favorite_key),
+    cast: [...new Set(cast)],
+    staff: [...new Set(staff)],
+    studios: [...new Set(studios)],
+    matched: favorites.has(entry.favorite_key) || cast.length > 0 || staff.length > 0 || studios.length > 0,
+  };
+}
+
+function renderFavoriteReasonPills(entry, favorites = getFavoriteSet(), personFavorites = getPersonFavoriteSet(), studioFavorites = getStudioFavoriteSet()) {
+  if (!state.favoritesOnly) {
+    return "";
+  }
+  const info = getFavoriteRelationInfo(entry, favorites, personFavorites, studioFavorites);
+  if (!info.matched) {
+    return "";
+  }
+  const labels = [];
+  if (state.selectedFavoriteScopes.includes("TITLE") && info.title) {
+    labels.push(state.lang === "ko" ? "작품" : "Title");
+  }
+  if (state.selectedFavoriteScopes.includes("CAST") && info.cast.length) {
+    labels.push(state.lang === "ko" ? `캐스트 ${info.cast.length}` : `Cast ${info.cast.length}`);
+  }
+  if (state.selectedFavoriteScopes.includes("STAFF") && info.staff.length) {
+    labels.push(state.lang === "ko" ? `스태프 ${info.staff.length}` : `Staff ${info.staff.length}`);
+  }
+  if (state.selectedFavoriteScopes.includes("STUDIO") && info.studios.length) {
+    labels.push(state.lang === "ko" ? `회사 ${info.studios.length}` : `Studio ${info.studios.length}`);
+  }
+  return labels.map((label) => `<span class="pill is-favorite-match">${escapeHtml(label)}</span>`).join("");
+}
+
 function matchesSearch(entry) {
   return !state.search || entry.search_text.includes(state.search.toLowerCase());
 }
@@ -612,23 +827,80 @@ function matchesScheduleStatus(entry) {
 function getYearOptions() {
   return [...new Set(
     state.entries
+      .filter((entry) => entry.finished && !isMovie(entry))
       .map((entry) => entry.season?.year)
       .filter(Boolean)
       .map((year) => String(year)),
   )].sort((left, right) => Number(right) - Number(left));
 }
 
+function ensureFinishedYearSelection() {
+  const years = getYearOptions();
+  if (!years.length) {
+    state.selectedYear = "ALL";
+    return;
+  }
+  if (!state.selectedYear || state.selectedYear === "ALL" || !years.includes(String(state.selectedYear))) {
+    state.selectedYear = years[0];
+  }
+}
+
 function getActiveEntries() {
   const favorites = getFavoriteSet();
+  const personFavorites = getPersonFavoriteSet();
+  const studioFavorites = getStudioFavoriteSet();
   return state.entries
-    .filter((entry) => !entry.finished && !isMovie(entry) && matchesScheduleStatus(entry) && matchesBaseFilters(entry, favorites) && matchesSearch(entry))
+    .filter((entry) => {
+      const favoriteInfo = getFavoriteRelationInfo(entry, favorites, personFavorites, studioFavorites);
+      return !entry.finished
+        && !isMovie(entry)
+        && (state.scheduleStatus !== "upcoming" || entry.schedule_confidence === "confirmed")
+        && matchesScheduleStatus(entry)
+        && matchesBaseFilters(entry, favorites, { favoriteInfo, personFavorites, studioFavorites })
+        && matchesSearch(entry);
+    })
+    .sort(compareEntries);
+}
+
+function getUpcomingSeasonalEntries() {
+  if (state.scheduleStatus !== "upcoming") {
+    return [];
+  }
+  const favorites = getFavoriteSet();
+  const personFavorites = getPersonFavoriteSet();
+  const studioFavorites = getStudioFavoriteSet();
+  return state.entries
+    .filter((entry) => {
+      if (entry.finished || isMovie(entry) || statusPriority(entry) !== 1) {
+        return false;
+      }
+      if (entry.schedule_confidence === "confirmed") {
+        return false;
+      }
+      const favoriteInfo = getFavoriteRelationInfo(entry, favorites, personFavorites, studioFavorites);
+      return matchesBaseFilters(entry, favorites, {
+        ignoreDayFilter: true,
+        favoriteInfo,
+        personFavorites,
+        studioFavorites,
+      }) && matchesSearch(entry);
+    })
     .sort(compareEntries);
 }
 
 function getFinishedSearchMatches() {
   const favorites = getFavoriteSet();
+  const personFavorites = getPersonFavoriteSet();
+  const studioFavorites = getStudioFavoriteSet();
+  ensureFinishedYearSelection();
   return state.entries
-    .filter((entry) => entry.finished && !isMovie(entry) && matchesBaseFilters(entry, favorites, { ignoreDayFilter: true }) && matchesSearch(entry))
+    .filter((entry) => {
+      const favoriteInfo = getFavoriteRelationInfo(entry, favorites, personFavorites, studioFavorites);
+      return entry.finished
+        && !isMovie(entry)
+        && matchesBaseFilters(entry, favorites, { ignoreDayFilter: true, favoriteInfo, personFavorites, studioFavorites })
+        && matchesSearch(entry);
+    })
     .sort(compareFinishedEntries);
 }
 
@@ -658,17 +930,28 @@ function getGlobalSearchResults() {
   if (!state.search) {
     return [];
   }
-  return state.entries.filter(matchesSearch).sort(compareGlobalSearchResults);
+  const favorites = getFavoriteSet();
+  const personFavorites = getPersonFavoriteSet();
+  const studioFavorites = getStudioFavoriteSet();
+  return state.entries
+    .filter((entry) => {
+      const favoriteInfo = getFavoriteRelationInfo(entry, favorites, personFavorites, studioFavorites);
+      return matchesSearch(entry) && matchesBaseFilters(entry, favorites, { ignoreDayFilter: true, favoriteInfo, personFavorites, studioFavorites });
+    })
+    .sort(compareGlobalSearchResults);
 }
 
 function getMovieEntries() {
   const favorites = getFavoriteSet();
+  const personFavorites = getPersonFavoriteSet();
+  const studioFavorites = getStudioFavoriteSet();
   return state.entries
     .filter((entry) => {
       if (!isMovie(entry) || entry.finished) {
         return false;
       }
-      if (!matchesBaseFilters(entry, favorites, { ignoreDayFilter: true })) {
+      const favoriteInfo = getFavoriteRelationInfo(entry, favorites, personFavorites, studioFavorites);
+      if (!matchesBaseFilters(entry, favorites, { ignoreDayFilter: true, favoriteInfo, personFavorites, studioFavorites })) {
         return false;
       }
       if (!matchesSearch(entry)) {
@@ -689,6 +972,7 @@ function updateStaticText() {
   document.getElementById("hero-text").textContent = t("heroText");
   document.getElementById("meta-active-label").textContent = t("activeMeta");
   document.getElementById("meta-finished-label").textContent = t("finishedMeta");
+  document.getElementById("meta-status-label").textContent = t("metaStatus");
   document.getElementById("search-label").textContent = t("searchLabel");
   document.getElementById("year-filter-label").textContent = t("yearFilter");
   document.getElementById("search-input").placeholder = t("searchPlaceholder");
@@ -703,13 +987,17 @@ function updateStaticText() {
   document.getElementById("view-finished").textContent = t("finishedView");
   document.getElementById("movie-now").textContent = t("movieNow");
   document.getElementById("movie-upcoming").textContent = t("movieUpcoming");
-  document.getElementById("favorites-eyebrow").textContent = t("favorites");
-  document.getElementById("favorites-title").textContent = t("favoritesTitle");
+  document.getElementById("favorites-eyebrow").textContent = "";
+  document.getElementById("favorites-title").textContent = state.lang === "ko" ? "좋아요 리스트" : "Favorite List";
   document.getElementById("favorites-close").textContent = t("close");
   document.getElementById("detail-close").textContent = t("close");
   document.getElementById("lang-toggle").textContent = state.lang === "ko" ? "EN" : "KO";
-  document.getElementById("total-count").textContent = String(state.activeCount || 0);
-  document.getElementById("finished-total").textContent = String(state.finishedCount || 0);
+  document.getElementById("total-count").textContent = formatEntryCount(state.activeCount || 0);
+  document.getElementById("finished-total").textContent = formatEntryCount(state.finishedCount || 0);
+  document.getElementById("total-note").textContent = activeMetaNote();
+  document.getElementById("finished-note").textContent = finishedMetaNote();
+  document.getElementById("meta-status-main").textContent = formatGeneratedAt(state.dataset?.generated_at);
+  document.getElementById("meta-status-sub").textContent = metaStatusSubtext();
   document.getElementById("search-input").value = state.search;
   document.getElementById("favorites-only").checked = state.favoritesOnly;
 }
@@ -725,11 +1013,10 @@ function renderDayFilters() {
 
 function renderYearFilter() {
   const target = document.getElementById("year-filter");
-  target.innerHTML = [
-    `<option value="ALL">${escapeHtml(t("allYears"))}</option>`,
-    ...getYearOptions().map((year) => `<option value="${escapeHtml(year)}">${escapeHtml(year)}</option>`),
-  ].join("");
-  target.value = state.selectedYear;
+  const years = getYearOptions();
+  target.innerHTML = years.map((year) => `<option value="${escapeHtml(year)}">${escapeHtml(year)}</option>`).join("");
+  ensureFinishedYearSelection();
+  target.value = years.includes(String(state.selectedYear)) ? state.selectedYear : (years[0] || "");
 }
 
 function renderSeasonFilters() {
@@ -746,6 +1033,20 @@ function renderMediaFilters() {
     const isActive = media === "ALL" ? state.selectedMedia.length === 0 : state.selectedMedia.includes(media);
     const activeClass = isActive ? "is-active" : "";
     return `<button class="day-chip ${activeClass}" type="button" data-media="${media}">${escapeHtml(mediaFilterLabel(media))}</button>`;
+  }).join("");
+}
+
+function renderFavoriteScopeFilters() {
+  const target = document.getElementById("favorite-scope-filters");
+  if (!state.favoritesOnly) {
+    target.classList.add("hidden");
+    target.innerHTML = "";
+    return;
+  }
+  target.classList.remove("hidden");
+  target.innerHTML = FAVORITE_SCOPE_ORDER.map((scope) => {
+    const activeClass = state.selectedFavoriteScopes.includes(scope) ? "is-active" : "";
+    return `<button class="day-chip ${activeClass}" type="button" data-favorite-scope="${scope}">${escapeHtml(favoriteScopeLabel(scope))}</button>`;
   }).join("");
 }
 
@@ -808,16 +1109,21 @@ function summarizeLeadStaff(entry, limit = 2) {
 
 function renderAnimeCard(entry, options = {}) {
   const favorites = getFavoriteSet();
+  const personFavorites = getPersonFavoriteSet();
+  const studioFavorites = getStudioFavoriteSet();
   const isFavorite = favorites.has(entry.favorite_key);
   const episodeLabel = currentEpisodeLabel(entry);
   const variant = options.variant || (options.finished ? "finished" : "default");
   const isExpandedList = Boolean(options.expandedList);
+  const favoriteReasonTags = renderFavoriteReasonPills(entry, favorites, personFavorites, studioFavorites);
   const tags = [
     `<span class="pill">${escapeHtml(formatMediaType(entry))}</span>`,
     variant !== "movie" && entry.broadcasters?.network ? `<span class="pill">${escapeHtml(entry.broadcasters.network)}</span>` : "",
     `<span class="pill">${escapeHtml(formatStatus(entry))}</span>`,
     variant === "default" && statusPriority(entry) === 1 ? `<span class="pill is-accent">${escapeHtml(formatSeasonShort(entry))}</span>` : "",
+    variant !== "movie" && statusPriority(entry) === 1 && entry.schedule_confidence !== "confirmed" ? `<span class="pill">${escapeHtml(scheduleConfidenceLabel(entry))}</span>` : "",
     variant === "finished" ? `<span class="pill">${escapeHtml(formatSeasonCompact(entry))}</span>` : "",
+    favoriteReasonTags,
     isExpandedList ? (entry.tags || []).slice(0, 4).map((tag) => `<span class="pill">${escapeHtml(tag)}</span>`).join("") : "",
   ].filter(Boolean).join("");
   const studioSummary = summarizeStudios(entry);
@@ -885,9 +1191,25 @@ function renderListPeopleChips(items, type, favoriteSet) {
   return `<span class="person-inline-list">${markup}</span>`;
 }
 
+function renderStudioFavoriteChips(studios, favoriteSet, limit = studios.length) {
+  if (!studios.length) {
+    return "";
+  }
+  const markup = studios.slice(0, limit).map((studioName) => {
+    const name = String(studioName || "").trim();
+    if (!name) {
+      return "";
+    }
+    const activeClass = favoriteSet.has(name) ? "is-active" : "";
+    return `<button class="credit-chip credit-toggle studio-inline-chip ${activeClass}" type="button" data-studio-favorite-name="${escapeHtml(name)}">${escapeHtml(name)}</button>`;
+  }).filter(Boolean).join("");
+  return `<span class="person-inline-list studio-inline-list">${markup}</span>`;
+}
+
 function renderListAnimeCard(entry) {
   const favorites = getFavoriteSet();
   const personFavorites = getPersonFavoriteSet();
+  const studioFavorites = getStudioFavoriteSet();
   const isFavorite = favorites.has(entry.favorite_key);
   const episodeLabel = currentEpisodeLabel(entry);
   const metaTags = [
@@ -895,9 +1217,11 @@ function renderListAnimeCard(entry) {
     entry.broadcasters?.network ? `<span class="pill">${escapeHtml(entry.broadcasters.network)}</span>` : "",
     `<span class="pill">${escapeHtml(formatStatus(entry))}</span>`,
     statusPriority(entry) === 1 ? `<span class="pill is-accent">${escapeHtml(formatSeasonShort(entry))}</span>` : "",
+    statusPriority(entry) === 1 && entry.schedule_confidence !== "confirmed" ? `<span class="pill">${escapeHtml(scheduleConfidenceLabel(entry))}</span>` : "",
+    renderFavoriteReasonPills(entry, favorites, personFavorites, studioFavorites),
   ].filter(Boolean).join("");
   const genrePills = (entry.tags || []).slice(0, 6).map((tag) => `<span class="pill">${escapeHtml(tag)}</span>`).join("");
-  const studioSummary = (entry.extensions?.studios || []).slice(0, 2).join(" / ");
+  const studioMarkup = renderStudioFavoriteChips(entry.extensions?.studios || [], studioFavorites, 2);
   const castMarkup = renderListPeopleChips((entry.extensions?.credits?.characters || [])
     .filter((item) => item.voice_actor_name || item.voice_actor_name_ja)
     .slice(0, 2), "cast", personFavorites);
@@ -931,7 +1255,7 @@ function renderListAnimeCard(entry) {
       </div>
       <aside class="list-card-side">
         ${genrePills ? `<div class="meta-row list-side-tags">${genrePills}</div>` : ""}
-        ${studioSummary ? `<div class="detail-inline"><strong>${escapeHtml(t("studios"))}</strong><span>${escapeHtml(studioSummary)}</span></div>` : ""}
+        ${studioMarkup ? `<div class="detail-inline detail-inline-people"><strong>${escapeHtml(t("studios"))}</strong>${studioMarkup}</div>` : ""}
         ${castMarkup ? `<div class="detail-inline detail-inline-people"><strong>${escapeHtml(t("cast"))}</strong>${castMarkup}</div>` : ""}
         ${staffMarkup ? `<div class="detail-inline detail-inline-people"><strong>${escapeHtml(t("staff"))}</strong>${staffMarkup}</div>` : ""}
         ${officialLink || xLink ? `<div class="link-row list-view-links">${officialLink}${xLink}</div>` : ""}
@@ -943,8 +1267,9 @@ function renderListAnimeCard(entry) {
 function renderBoard(entries) {
   const target = document.getElementById("board-view");
   const visibleDays = state.selectedDay === "ALL" ? DAY_ORDER : [state.selectedDay];
+  const seasonalEntries = getUpcomingSeasonalEntries();
 
-  if (!entries.length) {
+  if (!entries.length && !seasonalEntries.length) {
     target.innerHTML = renderEmpty(t("noActive"));
     return;
   }
@@ -964,12 +1289,28 @@ function renderBoard(entries) {
     `;
   }).join("");
 
-  target.innerHTML = `<div class="board-grid ${visibleDays.length < 7 ? "compact" : ""}">${columns}</div>`;
+  const seasonalMarkup = seasonalEntries.length ? `
+    <section class="search-group seasonal-upcoming-group">
+      <div class="search-head">
+        <div>
+          <h2>${escapeHtml(t("upcomingSeasonalTitle"))}</h2>
+          <p class="section-subcopy">${escapeHtml(t("upcomingSeasonalText"))}</p>
+        </div>
+        <span class="day-count">${escapeHtml(formatCount(seasonalEntries.length))}</span>
+      </div>
+      <div class="finished-grid">
+        ${seasonalEntries.map((entry) => renderAnimeCard(entry)).join("")}
+      </div>
+    </section>
+  ` : "";
+
+  target.innerHTML = `${entries.length ? `<div class="board-grid ${visibleDays.length < 7 ? "compact" : ""}">${columns}</div>` : ""}${seasonalMarkup}`;
 }
 
 function renderList(entries) {
   const target = document.getElementById("list-view");
-  if (!entries.length) {
+  const seasonalEntries = getUpcomingSeasonalEntries();
+  if (!entries.length && !seasonalEntries.length) {
     target.innerHTML = renderEmpty(t("noActive"));
     return;
   }
@@ -992,7 +1333,22 @@ function renderList(entries) {
     `;
   }).join("");
 
-  target.innerHTML = `<div class="list-wrap">${groups}</div>`;
+  const seasonalMarkup = seasonalEntries.length ? `
+    <section class="search-group seasonal-upcoming-group">
+      <div class="search-head">
+        <div>
+          <h2>${escapeHtml(t("upcomingSeasonalTitle"))}</h2>
+          <p class="section-subcopy">${escapeHtml(t("upcomingSeasonalText"))}</p>
+        </div>
+        <span class="day-count">${escapeHtml(formatCount(seasonalEntries.length))}</span>
+      </div>
+      <div class="finished-grid">
+        ${seasonalEntries.map((entry) => renderAnimeCard(entry)).join("")}
+      </div>
+    </section>
+  ` : "";
+
+  target.innerHTML = `<div class="list-wrap">${groups}${seasonalMarkup}</div>`;
 }
 
 function renderMovieView(entries) {
@@ -1019,6 +1375,7 @@ function renderMovieView(entries) {
 
 function renderFinishedView(entries) {
   const target = document.getElementById("finished-view");
+  const selectedYearLabel = state.selectedYear && state.selectedYear !== "ALL" ? ` ${escapeHtml(String(state.selectedYear))}` : "";
   if (!entries.length) {
     target.innerHTML = renderEmpty(t("noFinished"));
     return;
@@ -1028,7 +1385,7 @@ function renderFinishedView(entries) {
     <div class="search-wrap">
       <section class="search-group">
         <div class="search-head">
-          <h2>${escapeHtml(t("finishedSearchTitle"))}</h2>
+          <h2>${escapeHtml(t("finishedSearchTitle"))}${selectedYearLabel}</h2>
           <span class="day-count">${escapeHtml(formatCount(entries.length))}</span>
         </div>
         <div class="finished-grid">
@@ -1076,9 +1433,14 @@ function renderSearchResults(entries) {
 function renderFavoritesModal() {
   const favorites = getFavoriteSet();
   const personFavorites = getPersonFavoriteSet();
+  const studioFavorites = getStudioFavoriteSet();
   const items = state.entries.filter((entry) => favorites.has(entry.favorite_key)).sort(compareEntries);
   const people = [...personFavorites]
     .map((personId) => state.peopleIndex.get(String(personId)))
+    .filter(Boolean)
+    .sort((left, right) => (right.entry_ids?.length || 0) - (left.entry_ids?.length || 0));
+  const studios = [...studioFavorites]
+    .map((studioName) => state.studioIndex.get(String(studioName)))
     .filter(Boolean)
     .sort((left, right) => (right.entry_ids?.length || 0) - (left.entry_ids?.length || 0));
   const target = document.getElementById("favorites-list");
@@ -1146,6 +1508,302 @@ function renderFavoritesModal() {
   target.innerHTML = `${titleMarkup}${peopleMarkup}`;
 }
 
+function renderFavoritesModal() {
+  const favorites = getFavoriteSet();
+  const personFavorites = getPersonFavoriteSet();
+  const items = state.entries.filter((entry) => favorites.has(entry.favorite_key)).sort(compareEntries);
+  const people = [...personFavorites]
+    .map((personId) => state.peopleIndex.get(String(personId)))
+    .filter(Boolean)
+    .sort((left, right) => (right.entry_ids?.length || 0) - (left.entry_ids?.length || 0));
+  const target = document.getElementById("favorites-list");
+  const formatPeopleCount = (value) => state.lang === "ko" ? `${value}명` : `${value} people`;
+  const formatWorksCount = (value) => state.lang === "ko" ? `${value}작품` : `${value} works`;
+  const groups = { cast: [], staff: [] };
+
+  people.forEach((person) => {
+    const voiceActorCount = (person.roles || []).filter((item) => item.kind === "voice_actor").length;
+    const staffCount = (person.roles || []).filter((item) => item.kind === "staff").length;
+    if (voiceActorCount >= staffCount) {
+      groups.cast.push(person);
+    } else {
+      groups.staff.push(person);
+    }
+  });
+
+  const renderPersonCard = (person, type) => {
+    const relevantRoles = (person.roles || [])
+      .filter((item) => type === "cast" ? item.kind === "voice_actor" : item.kind === "staff")
+      .slice(0, 4);
+    const summary = type === "cast"
+      ? [...new Set(relevantRoles.map((item) => formatDisplayName(item.character_name_ja, item.character_name)).filter(Boolean))].slice(0, 2).join(" / ")
+      : [...new Set(relevantRoles.map((item) => item.role).filter(Boolean))].slice(0, 2).join(" / ");
+    const titleChips = relevantRoles.map((item) => {
+      const entry = state.entryIndex.get(item.entry_id);
+      if (!entry) {
+        return "";
+      }
+      const title = entry.titles?.ja || entry.titles?.en || entry.id;
+      const sub = type === "cast"
+        ? formatDisplayName(item.character_name_ja, item.character_name)
+        : (item.role || "");
+      return `<span class="person-work-chip">${escapeHtml(title)}${sub ? `<small>${escapeHtml(sub)}</small>` : ""}</span>`;
+    }).filter(Boolean).join("");
+    return `
+      <article class="person-card">
+        <div class="person-card-top">
+          <div class="person-head-copy">
+            <strong>${escapeHtml(formatDisplayName(person.name_ja, person.name))}</strong>
+            ${summary ? `<p class="person-meta">${escapeHtml(summary)}</p>` : ""}
+          </div>
+          <button class="favorite-chip is-active" type="button" data-person-favorite-id="${escapeHtml(person.id)}">★</button>
+        </div>
+        <p class="person-meta">${escapeHtml(formatWorksCount(person.entry_ids?.length || 0))}</p>
+        ${titleChips ? `<div class="person-work-list">${titleChips}</div>` : ""}
+      </article>
+    `;
+  };
+
+  const renderPeopleColumn = (title, entries, type) => `
+    <section class="favorite-people-column">
+      <div class="search-head">
+        <h2>${escapeHtml(title)}</h2>
+        <span class="day-count">${escapeHtml(formatPeopleCount(entries.length))}</span>
+      </div>
+      ${entries.length ? `<div class="people-grid">${entries.map((person) => renderPersonCard(person, type)).join("")}</div>` : renderEmpty(t("noFavoritePeople"))}
+    </section>
+  `;
+
+  const titleMarkup = items.length
+    ? `
+      <section class="search-group favorites-section favorites-titles-panel">
+        <div class="search-head">
+          <h2>${escapeHtml(t("favoritesTitle"))}</h2>
+          <span class="day-count">${escapeHtml(formatCount(items.length))}</span>
+        </div>
+        <div class="favorites-list-grid">
+          ${items.map((entry) => renderAnimeCard(entry, { finished: entry.finished })).join("")}
+        </div>
+      </section>
+    `
+    : `
+      <section class="search-group favorites-section favorites-titles-panel">
+        <div class="search-head">
+          <h2>${escapeHtml(t("favoritesTitle"))}</h2>
+        </div>
+        ${renderEmpty(t("noFavorites"))}
+      </section>
+    `;
+
+  const peopleMarkup = people.length
+    ? `
+      <section class="search-group favorites-section favorites-people-panel">
+        <div class="search-head">
+          <h2>${escapeHtml(t("favoritePeopleTitle"))}</h2>
+          <span class="day-count">${escapeHtml(formatPeopleCount(people.length))}</span>
+        </div>
+        <div class="favorite-people-layout">
+          ${renderPeopleColumn(state.lang === "ko" ? "캐스트" : "Cast", groups.cast, "cast")}
+          ${renderPeopleColumn(state.lang === "ko" ? "스태프" : "Staff", groups.staff, "staff")}
+        </div>
+      </section>
+    `
+    : `
+      <section class="search-group favorites-section favorites-people-panel">
+        <div class="search-head">
+          <h2>${escapeHtml(t("favoritePeopleTitle"))}</h2>
+        </div>
+        ${renderEmpty(t("noFavoritePeople"))}
+      </section>
+    `;
+  const studioMarkup = studios.length
+    ? `
+      <section class="search-group favorites-section favorites-studios-panel">
+        <div class="search-head">
+          <h2>${escapeHtml(state.lang === "ko" ? "좋아요 제작사" : "Favorite Studios")}</h2>
+          <span class="day-count">${escapeHtml(state.lang === "ko" ? `${studios.length}개` : `${studios.length} studios`)}</span>
+        </div>
+        <div class="people-grid">
+          ${studios.map((studio) => {
+            const titleChips = (studio.entry_ids || [])
+              .slice(0, 4)
+              .map((entryId) => state.entryIndex.get(entryId))
+              .filter(Boolean)
+              .map((entry) => `<span class="person-work-chip">${escapeHtml(entry.titles?.ja || entry.titles?.en || entry.id)}</span>`)
+              .join("");
+            return `
+              <article class="person-card studio-card">
+                <div class="person-card-top">
+                  <div class="person-head-copy">
+                    <strong>${escapeHtml(studio.name)}</strong>
+                  </div>
+                  <button class="favorite-chip is-active" type="button" data-studio-favorite-name="${escapeHtml(studio.name)}">★</button>
+                </div>
+                <p class="person-meta">${escapeHtml(state.lang === "ko" ? `${studio.entry_ids?.length || 0}작품` : `${studio.entry_ids?.length || 0} works`)}</p>
+                ${titleChips ? `<div class="person-work-list">${titleChips}</div>` : ""}
+              </article>
+            `;
+          }).join("")}
+        </div>
+      </section>
+    `
+    : `
+      <section class="search-group favorites-section favorites-studios-panel">
+        <div class="search-head">
+          <h2>${escapeHtml(state.lang === "ko" ? "좋아요 제작사" : "Favorite Studios")}</h2>
+        </div>
+        ${renderEmpty(state.lang === "ko" ? "좋아요한 제작사가 없습니다." : "No favorite studios yet.")}
+      </section>
+    `;
+
+  target.innerHTML = `<div class="favorites-dashboard">${titleMarkup}<div class="favorites-side-stack">${peopleMarkup}${studioMarkup}</div></div>`;
+}
+
+function renderFavoritesModal() {
+  const favorites = getFavoriteSet();
+  const personFavorites = getPersonFavoriteSet();
+  const studioFavorites = getStudioFavoriteSet();
+  const items = state.entries.filter((entry) => favorites.has(entry.favorite_key)).sort(compareEntries);
+  const people = [...personFavorites]
+    .map((personId) => state.peopleIndex.get(String(personId)))
+    .filter(Boolean)
+    .sort((left, right) => (right.entry_ids?.length || 0) - (left.entry_ids?.length || 0));
+  const studios = [...studioFavorites]
+    .map((studioName) => state.studioIndex.get(String(studioName)))
+    .filter(Boolean)
+    .sort((left, right) => (right.entry_ids?.length || 0) - (left.entry_ids?.length || 0));
+  const target = document.getElementById("favorites-list");
+
+  const personCountLabel = (value) => state.lang === "ko" ? `${value}명` : `${value} people`;
+  const studioCountLabel = (value) => state.lang === "ko" ? `${value}개` : `${value} studios`;
+  const worksCountLabel = (value) => state.lang === "ko" ? `${value}작품` : `${value} works`;
+
+  const groups = { cast: [], staff: [] };
+  people.forEach((person) => {
+    const voiceActorCount = (person.roles || []).filter((item) => item.kind === "voice_actor").length;
+    const staffCount = (person.roles || []).filter((item) => item.kind === "staff").length;
+    if (voiceActorCount >= staffCount) {
+      groups.cast.push(person);
+    } else {
+      groups.staff.push(person);
+    }
+  });
+
+  const renderPersonCard = (person, type) => {
+    const relevantRoles = (person.roles || [])
+      .filter((item) => type === "cast" ? item.kind === "voice_actor" : item.kind === "staff")
+      .slice(0, 4);
+    const summary = type === "cast"
+      ? [...new Set(relevantRoles.map((item) => formatDisplayName(item.character_name_ja, item.character_name)).filter(Boolean))].slice(0, 2).join(" / ")
+      : [...new Set(relevantRoles.map((item) => item.role).filter(Boolean))].slice(0, 2).join(" / ");
+    const titleChips = relevantRoles.map((item) => {
+      const entry = state.entryIndex.get(item.entry_id);
+      if (!entry) {
+        return "";
+      }
+      const title = entry.titles?.ja || entry.titles?.en || entry.id;
+      const sub = type === "cast" ? formatDisplayName(item.character_name_ja, item.character_name) : (item.role || "");
+      return `<span class="person-work-chip">${escapeHtml(title)}${sub ? `<small>${escapeHtml(sub)}</small>` : ""}</span>`;
+    }).filter(Boolean).join("");
+    return `
+      <article class="person-card">
+        <div class="person-card-top">
+          <div class="person-head-copy">
+            <strong>${escapeHtml(formatDisplayName(person.name_ja, person.name))}</strong>
+            ${summary ? `<p class="person-meta">${escapeHtml(summary)}</p>` : ""}
+          </div>
+          <button class="favorite-chip is-active" type="button" data-person-favorite-id="${escapeHtml(person.id)}">★</button>
+        </div>
+        <p class="person-meta">${escapeHtml(worksCountLabel(person.entry_ids?.length || 0))}</p>
+        ${titleChips ? `<div class="person-work-list">${titleChips}</div>` : ""}
+      </article>
+    `;
+  };
+
+  const renderPeopleColumn = (title, entries, type) => `
+    <section class="favorite-people-column">
+      <div class="search-head">
+        <h2>${escapeHtml(title)}</h2>
+        <span class="day-count">${escapeHtml(personCountLabel(entries.length))}</span>
+      </div>
+      ${entries.length
+        ? `<div class="people-grid">${entries.map((person) => renderPersonCard(person, type)).join("")}</div>`
+        : renderEmpty(t("noFavoritePeople"))}
+    </section>
+  `;
+
+  const titleMarkup = items.length
+    ? `
+      <section class="search-group favorites-section favorites-titles-panel">
+        <div class="search-head">
+          <h2>${escapeHtml(state.lang === "ko" ? "작품" : "Titles")}</h2>
+          <span class="day-count">${escapeHtml(formatCount(items.length))}</span>
+        </div>
+        <div class="favorites-list-grid">
+          ${items.map((entry) => renderAnimeCard(entry, { finished: entry.finished })).join("")}
+        </div>
+      </section>
+    `
+    : `
+      <section class="search-group favorites-section favorites-titles-panel">
+        <div class="search-head">
+          <h2>${escapeHtml(state.lang === "ko" ? "작품" : "Titles")}</h2>
+        </div>
+        ${renderEmpty(t("noFavorites"))}
+      </section>
+    `;
+
+  const peopleMarkup = `
+    <section class="search-group favorites-section favorites-people-panel">
+      <div class="search-head">
+        <h2>${escapeHtml(state.lang === "ko" ? "인물" : "People")}</h2>
+        <span class="day-count">${escapeHtml(personCountLabel(people.length))}</span>
+      </div>
+      ${people.length
+        ? `<div class="favorite-people-layout">
+            ${renderPeopleColumn(state.lang === "ko" ? "캐스트" : "Cast", groups.cast, "cast")}
+            ${renderPeopleColumn(state.lang === "ko" ? "스태프" : "Staff", groups.staff, "staff")}
+          </div>`
+        : renderEmpty(t("noFavoritePeople"))}
+    </section>
+  `;
+
+  const studioMarkup = `
+    <section class="search-group favorites-section favorites-studios-panel">
+      <div class="search-head">
+        <h2>${escapeHtml(state.lang === "ko" ? "회사" : "Studios")}</h2>
+        <span class="day-count">${escapeHtml(studioCountLabel(studios.length))}</span>
+      </div>
+      ${studios.length
+        ? `<div class="people-grid">
+            ${studios.map((studio) => {
+              const titleChips = (studio.entry_ids || [])
+                .slice(0, 4)
+                .map((entryId) => state.entryIndex.get(entryId))
+                .filter(Boolean)
+                .map((entry) => `<span class="person-work-chip">${escapeHtml(entry.titles?.ja || entry.titles?.en || entry.id)}</span>`)
+                .join("");
+              return `
+                <article class="person-card studio-card">
+                  <div class="person-card-top">
+                    <div class="person-head-copy">
+                      <strong>${escapeHtml(studio.name)}</strong>
+                    </div>
+                    <button class="favorite-chip is-active" type="button" data-studio-favorite-name="${escapeHtml(studio.name)}">★</button>
+                  </div>
+                  <p class="person-meta">${escapeHtml(worksCountLabel(studio.entry_ids?.length || 0))}</p>
+                  ${titleChips ? `<div class="person-work-list">${titleChips}</div>` : ""}
+                </article>
+              `;
+            }).join("")}
+          </div>`
+        : renderEmpty(state.lang === "ko" ? "좋아요한 제작사가 없습니다." : "No favorite studios yet.")}
+    </section>
+  `;
+
+  target.innerHTML = `<div class="favorites-dashboard">${titleMarkup}${peopleMarkup}${studioMarkup}</div>`;
+}
+
 function renderCreditsSection(items, formatter, emptyText) {
   if (!items.length) {
     return `<div class="empty-state">${escapeHtml(emptyText)}</div>`;
@@ -1165,6 +1823,7 @@ function openDetailModal(entryId) {
   const characters = credits.characters || [];
   const staff = credits.staff || [];
   const personFavorites = getPersonFavoriteSet();
+  const studioFavorites = getStudioFavoriteSet();
   const tags = entry.tags || [];
   const studios = entry.extensions?.studios || [];
 
@@ -1197,7 +1856,7 @@ function openDetailModal(entryId) {
         </div>
         <div class="detail-item">
           <strong>${escapeHtml(t("studios"))}</strong>
-          <span>${escapeHtml(studios.join(", ") || "-")}</span>
+          <span>${studios.length ? renderStudioFavoriteChips(studios, studioFavorites) : "-"}</span>
         </div>
       </div>
       <div class="detail-links">
@@ -1315,6 +1974,7 @@ function render() {
   renderYearFilter();
   renderSeasonFilters();
   renderMediaFilters();
+  renderFavoriteScopeFilters();
   renderSummaryStrip(activeEntries, finishedMatches);
   renderBoard(activeEntries);
   renderList(activeEntries);
@@ -1355,6 +2015,21 @@ function togglePersonFavorite(personId) {
   render();
 }
 
+function toggleStudioFavorite(studioName) {
+  const normalizedName = String(studioName || "").trim();
+  if (!normalizedName) {
+    return;
+  }
+  const favorites = getStudioFavoriteSet();
+  if (favorites.has(normalizedName)) {
+    favorites.delete(normalizedName);
+  } else {
+    favorites.add(normalizedName);
+  }
+  saveStudioFavoriteSet(favorites);
+  render();
+}
+
 function renderFatal(message) {
   document.getElementById("board-view").innerHTML = renderEmpty(message);
   document.getElementById("list-view").innerHTML = "";
@@ -1386,6 +2061,26 @@ function bindEvents() {
     render();
   });
 
+  document.getElementById("favorite-scope-filters").addEventListener("click", (event) => {
+    const button = event.target.closest("[data-favorite-scope]");
+    if (!button) {
+      return;
+    }
+    const scope = button.dataset.favoriteScope;
+    if (!FAVORITE_SCOPE_ORDER.includes(scope)) {
+      return;
+    }
+    if (state.selectedFavoriteScopes.includes(scope)) {
+      if (state.selectedFavoriteScopes.length === 1) {
+        return;
+      }
+      state.selectedFavoriteScopes = state.selectedFavoriteScopes.filter((item) => item !== scope);
+    } else {
+      state.selectedFavoriteScopes = [...state.selectedFavoriteScopes, scope];
+    }
+    render();
+  });
+
   document.getElementById("lang-toggle").addEventListener("click", toggleLanguage);
   document.getElementById("theme-toggle").addEventListener("click", toggleTheme);
 
@@ -1414,6 +2109,7 @@ function bindEvents() {
 
   document.getElementById("view-finished").addEventListener("click", () => {
     state.viewMode = "finished";
+    ensureFinishedYearSelection();
     localStorage.setItem(VIEW_STORAGE_KEY, state.viewMode);
     render();
   });
@@ -1485,6 +2181,12 @@ function bindEvents() {
     const personFavoriteButton = event.target.closest("[data-person-favorite-id]");
     if (personFavoriteButton) {
       togglePersonFavorite(personFavoriteButton.dataset.personFavoriteId);
+      return;
+    }
+
+    const studioFavoriteButton = event.target.closest("[data-studio-favorite-name]");
+    if (studioFavoriteButton) {
+      toggleStudioFavorite(studioFavoriteButton.dataset.studioFavoriteName);
       return;
     }
 

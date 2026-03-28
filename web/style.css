@@ -75,7 +75,7 @@ input {
 
 .hero {
   display: grid;
-  grid-template-columns: minmax(0, 1.7fr) minmax(250px, 0.8fr);
+  grid-template-columns: minmax(0, 1.55fr) minmax(360px, 1fr);
   gap: 16px;
   padding: 20px;
 }
@@ -110,6 +110,7 @@ input {
 
 .hero-meta {
   display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
   align-content: start;
 }
@@ -122,6 +123,14 @@ input {
   border: 1px solid rgba(11, 91, 211, 0.12);
 }
 
+.meta-block {
+  min-height: 88px;
+}
+
+.meta-status {
+  grid-column: 1 / -1;
+}
+
 .meta-label {
   display: block;
   margin-bottom: 4px;
@@ -130,6 +139,20 @@ input {
   color: var(--muted);
   letter-spacing: 0.05em;
   text-transform: uppercase;
+}
+
+.meta-value {
+  display: block;
+  font-size: 1.18rem;
+  line-height: 1.15;
+}
+
+.meta-sub {
+  display: block;
+  margin-top: 6px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.35;
 }
 
 .toolbar {
@@ -149,6 +172,16 @@ input {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.favorite-scope-filters {
+  gap: 6px;
+}
+
+.favorite-scope-filters .day-chip {
+  min-height: 30px;
+  padding: 0 10px;
+  font-size: 0.72rem;
 }
 
 .toolbar-row + .toolbar-row {
@@ -389,6 +422,10 @@ html[data-theme="dark"] .summary-note {
   box-shadow: 0 10px 24px rgba(26, 35, 51, 0.05);
 }
 
+.seasonal-upcoming-group {
+  margin-top: 10px;
+}
+
 .day-head,
 .search-head {
   display: flex;
@@ -396,6 +433,13 @@ html[data-theme="dark"] .summary-note {
   justify-content: space-between;
   gap: 8px;
   margin-bottom: 10px;
+}
+
+.section-subcopy {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.35;
 }
 
 .day-head h2,
@@ -495,8 +539,136 @@ html[data-theme="dark"] .list-group .day-head {
   gap: 8px;
 }
 
+.favorites-dashboard {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+  align-items: start;
+}
+
+.favorites-titles-panel,
+.favorites-side-stack {
+  min-width: 0;
+}
+
+.favorites-side-stack {
+  display: grid;
+  gap: 12px;
+}
+
 .favorites-list {
+  grid-template-columns: 1fr;
+}
+
+.favorites-list-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.favorites-people-panel,
+.favorites-titles-panel,
+.favorite-people-column {
+  display: grid;
+  gap: 10px;
+}
+
+.favorite-people-layout {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.people-grid {
+  display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.person-card {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 16px;
+  border: 1px solid rgba(11, 91, 211, 0.1);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(244, 248, 255, 0.96) 100%);
+}
+
+.person-card-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.person-head-copy {
+  min-width: 0;
+}
+
+.person-head-copy strong {
+  display: block;
+  font-size: 1rem;
+  line-height: 1.25;
+}
+
+.person-meta {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+
+.person-work-list {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.person-work-chip {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  max-width: 100%;
+  padding: 7px 9px;
+  border-radius: 12px;
+  background: rgba(11, 91, 211, 0.08);
+  color: var(--text);
+  font-size: 0.76rem;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.person-work-chip small {
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+
+.studio-inline-list {
+  gap: 5px;
+}
+
+.studio-inline-chip {
+  min-height: 28px;
+  padding: 4px 9px;
+  font-size: 0.76rem;
+  background: rgba(11, 91, 211, 0.08);
+}
+
+.studio-inline-chip.is-active {
+  border-color: var(--gold);
+  background: rgba(212, 160, 23, 0.18);
+  color: #8b6500;
+}
+
+.studio-card .person-head-copy strong {
+  font-size: 0.92rem;
+}
+
+.pill.is-favorite-match {
+  background: rgba(212, 160, 23, 0.14);
+  color: #8b6500;
 }
 
 .anime-card {
@@ -553,6 +725,26 @@ html[data-theme="dark"] .anime-card {
 
 html[data-theme="dark"] .anime-card.is-movie {
   background: linear-gradient(180deg, rgba(24, 32, 52, 0.98) 0%, rgba(16, 23, 39, 0.98) 100%);
+}
+
+html[data-theme="dark"] .person-card {
+  background: linear-gradient(180deg, rgba(24, 35, 56, 0.98) 0%, rgba(18, 28, 46, 0.98) 100%);
+  border-color: rgba(157, 179, 214, 0.15);
+}
+
+html[data-theme="dark"] .person-work-chip {
+  background: rgba(110, 168, 255, 0.14);
+}
+
+html[data-theme="dark"] .studio-inline-chip.is-active {
+  border-color: #ffd36a;
+  background: rgba(255, 211, 106, 0.28);
+  color: #ffe8a8;
+}
+
+html[data-theme="dark"] .pill.is-favorite-match {
+  background: rgba(255, 211, 106, 0.22);
+  color: #ffe6a0;
 }
 
 html[data-theme="dark"] .list-card-side {
@@ -856,6 +1048,14 @@ html[data-theme="dark"] .empty-state {
   overflow: auto;
 }
 
+#favorites-modal .modal-card {
+  width: min(1420px, calc(100% - 20px));
+}
+
+#favorites-eyebrow:empty {
+  display: none;
+}
+
 .detail-card {
   width: min(980px, calc(100% - 20px));
 }
@@ -975,6 +1175,10 @@ html[data-theme="dark"] .credit-toggle.is-active {
     grid-template-columns: 1fr;
   }
 
+  .hero-meta {
+    grid-template-columns: 1fr;
+  }
+
   .summary-strip {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -991,7 +1195,19 @@ html[data-theme="dark"] .credit-toggle.is-active {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .favorites-list {
+  .favorites-dashboard {
+    grid-template-columns: 1fr;
+  }
+
+  .favorites-list-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .favorite-people-layout {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .people-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
@@ -1014,7 +1230,12 @@ html[data-theme="dark"] .credit-toggle.is-active {
 
   .finished-grid,
   .movie-grid,
-  .favorites-list {
+  .favorites-list-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .favorite-people-layout,
+  .people-grid {
     grid-template-columns: 1fr;
   }
 
