@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>애니메이션 캘린더</title>
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <div class="page-shell">
+    <header class="hero panel">
+      <div class="hero-copy">
+        <p id="hero-eyebrow" class="eyebrow">애니메이션 캘린더</p>
+        <h1 id="hero-title">일본 최속 방영표</h1>
+        <p id="hero-text" class="hero-text">주간 방영표, 완결작 라이브러리, 극장판 개봉 일정을 한 화면에서 다루는 애니메이션 스케줄러입니다.</p>
+      </div>
+      <div class="hero-meta">
+        <div class="meta-block">
+          <span id="meta-active-label" class="meta-label">현재 방영작</span>
+          <strong id="total-count">0</strong>
+        </div>
+        <div class="meta-block">
+          <span id="meta-finished-label" class="meta-label">완결작 DB</span>
+          <strong id="finished-total">0</strong>
+        </div>
+      </div>
+    </header>
+
+    <section class="toolbar panel">
+      <div class="toolbar-row">
+        <label class="search-box">
+          <span id="search-label">검색</span>
+          <input id="search-input" type="search" autocomplete="off" spellcheck="false" placeholder="제목, 스태프, 태그, 스튜디오 검색">
+        </label>
+        <label class="toggle-box">
+          <input id="favorites-only" type="checkbox">
+          <span id="favorites-only-label">좋아요만 보기</span>
+        </label>
+        <div class="toolbar-actions">
+          <button id="open-favorites" class="ghost-btn" type="button">좋아요</button>
+          <button id="theme-toggle" class="ghost-btn" type="button">다크</button>
+          <button id="lang-toggle" class="ghost-btn" type="button">EN</button>
+        </div>
+      </div>
+      <div class="toolbar-row">
+        <div id="schedule-tabs" class="view-switch major-switch">
+          <button id="status-airing" class="switch-btn is-active" type="button">방영중</button>
+          <button id="status-upcoming" class="switch-btn" type="button">방영예정</button>
+        </div>
+        <div id="day-filters" class="day-filters"></div>
+        <div class="view-switch major-switch">
+          <button id="view-board" class="switch-btn is-active" type="button">요일별 방영표</button>
+          <button id="view-list" class="switch-btn" type="button">리스트</button>
+          <button id="view-movies" class="switch-btn" type="button">극장판</button>
+          <button id="view-finished" class="switch-btn" type="button">완결작</button>
+        </div>
+        <div id="movie-tabs" class="view-switch major-switch hidden">
+          <button id="movie-now" class="switch-btn is-active" type="button">상영중</button>
+          <button id="movie-upcoming" class="switch-btn" type="button">상영예정</button>
+        </div>
+      </div>
+      <div id="toolbar-filters" class="toolbar-row toolbar-filters">
+        <label id="year-filter-wrap" class="filter-select">
+          <span id="year-filter-label">연도</span>
+          <select id="year-filter"></select>
+        </label>
+        <div class="filter-cluster">
+          <div id="season-filters" class="day-filters"></div>
+          <div id="media-filters" class="day-filters"></div>
+        </div>
+      </div>
+    </section>
+
+    <main class="main-stack">
+      <section id="board-view" class="view-panel"></section>
+      <section id="list-view" class="view-panel hidden"></section>
+      <section id="movie-view" class="view-panel hidden"></section>
+      <section id="finished-view" class="view-panel hidden"></section>
+      <section id="search-results" class="view-panel hidden"></section>
+    </main>
+
+    <section id="summary-strip" class="summary-strip panel"></section>
+  </div>
+
+  <div id="favorites-modal" class="modal hidden" aria-hidden="true">
+    <div class="modal-backdrop" data-close-modal="favorites"></div>
+    <div class="modal-card panel">
+      <div class="modal-head">
+        <div>
+          <p id="favorites-eyebrow" class="eyebrow">좋아요</p>
+          <h2 id="favorites-title">좋아요 작품</h2>
+        </div>
+        <button id="favorites-close" class="ghost-btn" type="button" data-close-modal="favorites">닫기</button>
+      </div>
+      <div id="favorites-list" class="favorites-list"></div>
+    </div>
+  </div>
+
+  <div id="detail-modal" class="modal hidden" aria-hidden="true">
+    <div class="modal-backdrop" data-close-modal="detail"></div>
+    <div class="modal-card detail-card panel">
+      <div class="modal-head">
+        <div>
+          <p class="eyebrow" id="detail-kicker">애니메이션 상세</p>
+          <h2 id="detail-title">-</h2>
+          <p id="detail-subtitle" class="detail-subtitle">-</p>
+        </div>
+        <button id="detail-close" class="ghost-btn" type="button" data-close-modal="detail">닫기</button>
+      </div>
+      <div id="detail-body" class="detail-body"></div>
+    </div>
+  </div>
+
+  <script src="./app.js"></script>
+</body>
+</html>

@@ -1,0 +1,146 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.local/anime_schedule.schema.json",
+  "title": "Animation Calendar Source Data",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "dataset", "entries"],
+  "properties": {
+    "version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "dataset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "primary_source", "timezone", "locale", "is_sample"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "primary_source": { "type": "string", "minLength": 1 },
+        "timezone": { "type": "string", "const": "Asia/Tokyo" },
+        "locale": { "type": "string", "const": "ja-JP" },
+        "is_sample": { "type": "boolean" },
+        "notes": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "entries": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/entry" }
+    }
+  },
+  "$defs": {
+    "dayOfWeek": {
+      "type": "string",
+      "enum": ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"]
+    },
+    "quarter": {
+      "type": "string",
+      "enum": ["WINTER", "SPRING", "SUMMER", "FALL"]
+    },
+    "service": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "url"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "url": { "type": "string", "format": "uri" }
+      }
+    },
+    "entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "entity_type", "schedule_kind", "status", "season", "titles", "schedule", "source_links"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9-]*$"
+        },
+        "entity_type": { "type": "string", "const": "anime" },
+        "schedule_kind": { "type": "string", "const": "weekly_broadcast" },
+        "status": {
+          "type": "string",
+          "enum": ["upcoming", "airing", "hiatus", "ended"]
+        },
+        "season": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["year", "quarter"],
+          "properties": {
+            "year": { "type": "integer", "minimum": 2000 },
+            "quarter": { "$ref": "#/$defs/quarter" }
+          }
+        },
+        "titles": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["ja", "en"],
+          "properties": {
+            "ja": { "type": "string", "minLength": 1 },
+            "en": { "type": "string", "minLength": 1 },
+            "ko": { "type": ["string", "null"] },
+            "short": { "type": ["string", "null"] }
+          }
+        },
+        "schedule": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["reference", "timezone", "day_of_week", "date", "time", "sort_at"],
+          "properties": {
+            "reference": { "type": "string", "const": "jp_fastest" },
+            "timezone": { "type": "string", "const": "Asia/Tokyo" },
+            "day_of_week": { "$ref": "#/$defs/dayOfWeek" },
+            "date": { "type": "string", "format": "date" },
+            "time": {
+              "type": "string",
+              "pattern": "^(?:[01][0-9]|2[0-9]):[0-5][0-9]$"
+            },
+            "sort_at": { "type": "string", "format": "date-time" },
+            "episode_label": { "type": ["string", "null"] }
+          }
+        },
+        "broadcasters": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "network": { "type": ["string", "null"] },
+            "block": { "type": ["string", "null"] }
+          }
+        },
+        "source_links": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mal"],
+          "properties": {
+            "mal": { "type": "string", "format": "uri" },
+            "official": { "type": ["string", "null"], "format": "uri" }
+          }
+        },
+        "availability": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kr_streaming": { "type": ["boolean", "null"] },
+            "services": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/service" }
+            }
+          }
+        },
+        "tags": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "notes": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "extensions": {
+          "type": "object"
+        }
+      }
+    }
+  }
+}

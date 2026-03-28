@@ -1,0 +1,201 @@
+{
+  "version": 1,
+  "dataset": {
+    "name": "애니메이션 캘린더",
+    "primary_source": "MyAnimeList",
+    "timezone": "Asia/Tokyo",
+    "locale": "ja-JP",
+    "is_sample": true,
+    "notes": [
+      "현재 포함된 작품은 구조 확인용 샘플입니다.",
+      "실데이터 수집 단계에서는 MAL 기반 필드 매핑을 우선 적용합니다."
+    ]
+  },
+  "entries": [
+    {
+      "id": "sample-moonlit-notes",
+      "entity_type": "anime",
+      "schedule_kind": "weekly_broadcast",
+      "status": "upcoming",
+      "season": {
+        "year": 2026,
+        "quarter": "SPRING"
+      },
+      "titles": {
+        "ja": "ムーンライト・ノーツ",
+        "en": "Moonlight Notes",
+        "ko": null,
+        "short": "Moon Notes"
+      },
+      "schedule": {
+        "reference": "jp_fastest",
+        "timezone": "Asia/Tokyo",
+        "day_of_week": "MON",
+        "date": "2026-04-06",
+        "time": "24:00",
+        "sort_at": "2026-04-07T00:00:00+09:00",
+        "episode_label": "1화"
+      },
+      "broadcasters": {
+        "network": "TOKYO MX",
+        "block": "深夜アニメ"
+      },
+      "source_links": {
+        "mal": "https://myanimelist.net/anime/00001",
+        "official": "https://example.com/moonlight-notes"
+      },
+      "availability": {
+        "kr_streaming": null,
+        "services": []
+      },
+      "tags": [
+        "music",
+        "school"
+      ],
+      "notes": [
+        "일본 최속 기준 심야 편성 예시"
+      ],
+      "extensions": {}
+    },
+    {
+      "id": "sample-neon-orbit",
+      "entity_type": "anime",
+      "schedule_kind": "weekly_broadcast",
+      "status": "upcoming",
+      "season": {
+        "year": 2026,
+        "quarter": "SPRING"
+      },
+      "titles": {
+        "ja": "ネオン・オービット",
+        "en": "Neon Orbit",
+        "ko": null,
+        "short": null
+      },
+      "schedule": {
+        "reference": "jp_fastest",
+        "timezone": "Asia/Tokyo",
+        "day_of_week": "TUE",
+        "date": "2026-04-07",
+        "time": "23:30",
+        "sort_at": "2026-04-07T23:30:00+09:00",
+        "episode_label": "1화"
+      },
+      "broadcasters": {
+        "network": "BS11",
+        "block": null
+      },
+      "source_links": {
+        "mal": "https://myanimelist.net/anime/00002",
+        "official": "https://example.com/neon-orbit"
+      },
+      "availability": {
+        "kr_streaming": false,
+        "services": []
+      },
+      "tags": [
+        "sci-fi",
+        "idol"
+      ],
+      "notes": [
+        "추후 아이마스/아티스트 일정 통합 시 카드 구성 참고용"
+      ],
+      "extensions": {}
+    },
+    {
+      "id": "sample-biscuit-rangers",
+      "entity_type": "anime",
+      "schedule_kind": "weekly_broadcast",
+      "status": "upcoming",
+      "season": {
+        "year": 2026,
+        "quarter": "SPRING"
+      },
+      "titles": {
+        "ja": "ビスケットレンジャーズ",
+        "en": "Biscuit Rangers",
+        "ko": null,
+        "short": "Bisco Rangers"
+      },
+      "schedule": {
+        "reference": "jp_fastest",
+        "timezone": "Asia/Tokyo",
+        "day_of_week": "FRI",
+        "date": "2026-04-10",
+        "time": "18:00",
+        "sort_at": "2026-04-10T18:00:00+09:00",
+        "episode_label": "1화"
+      },
+      "broadcasters": {
+        "network": "テレビ東京",
+        "block": "夕方"
+      },
+      "source_links": {
+        "mal": "https://myanimelist.net/anime/00003",
+        "official": "https://example.com/biscuit-rangers"
+      },
+      "availability": {
+        "kr_streaming": true,
+        "services": [
+          {
+            "name": "Sample Stream",
+            "url": "https://example.com/sample-stream"
+          }
+        ]
+      },
+      "tags": [
+        "family",
+        "action"
+      ],
+      "notes": [
+        "한국 스트리밍 노출 예시"
+      ],
+      "extensions": {}
+    },
+    {
+      "id": "sample-starlight-rehearsal",
+      "entity_type": "anime",
+      "schedule_kind": "weekly_broadcast",
+      "status": "upcoming",
+      "season": {
+        "year": 2026,
+        "quarter": "SPRING"
+      },
+      "titles": {
+        "ja": "スターライト・リハーサル",
+        "en": "Starlight Rehearsal",
+        "ko": null,
+        "short": "Starlight"
+      },
+      "schedule": {
+        "reference": "jp_fastest",
+        "timezone": "Asia/Tokyo",
+        "day_of_week": "SAT",
+        "date": "2026-04-11",
+        "time": "25:30",
+        "sort_at": "2026-04-12T01:30:00+09:00",
+        "episode_label": "1화"
+      },
+      "broadcasters": {
+        "network": "MBS",
+        "block": "アニメイズム"
+      },
+      "source_links": {
+        "mal": "https://myanimelist.net/anime/00004",
+        "official": "https://example.com/starlight-rehearsal"
+      },
+      "availability": {
+        "kr_streaming": null,
+        "services": []
+      },
+      "tags": [
+        "music",
+        "performance"
+      ],
+      "notes": [
+        "25시대 편성 표기 예시"
+      ],
+      "extensions": {}
+    }
+  ]
+}

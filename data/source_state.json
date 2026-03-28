@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "seed": {
+    "year": 2026,
+    "season": "spring"
+  },
+  "latest_forward": {
+    "year": 2026,
+    "season": "spring"
+  },
+  "next_backfill": {
+    "year": 2021,
+    "season": "fall"
+  },
+  "completed_seasons": [
+    "2022-fall",
+    "2022-spring",
+    "2022-summer",
+    "2022-winter",
+    "2023-fall",
+    "2023-spring",
+    "2023-summer",
+    "2023-winter",
+    "2024-fall",
+    "2024-spring",
+    "2024-summer",
+    "2024-winter",
+    "2025-fall",
+    "2025-spring",
+    "2025-summer",
+    "2025-winter",
+    "2026-spring",
+    "2026-winter"
+  ],
+  "last_successful_sync_at": "2026-03-28T14:38:34+09:00"
+}
