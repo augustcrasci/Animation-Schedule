@@ -8,7 +8,7 @@ from datetime import datetime
 from pathlib import Path
 from tkinter import messagebox
 
-from app.calendar_common import COMPILED_DATA_FILE, PID_FILE, ROOT_DIR, SOURCE_STATE_FILE, has_mal_client_id, load_json
+from app.calendar_common import COMPILED_DATA_FILE, ENV_FILE, PID_FILE, ROOT_DIR, SOURCE_STATE_FILE, has_mal_client_id, load_json
 from app.refresh_all import main as refresh_all_main
 
 
@@ -126,6 +126,32 @@ def load_launcher_status() -> dict[str, str]:
     }
 
 
+def save_mal_client_id(value: str) -> None:
+    client_id = value.strip()
+    if not client_id:
+        raise ValueError("MAL Client ID를 입력해 주세요.")
+
+    existing_lines: list[str] = []
+    if ENV_FILE.exists():
+        existing_lines = ENV_FILE.read_text(encoding="utf-8").splitlines()
+
+    replaced = False
+    updated_lines: list[str] = []
+    for line in existing_lines:
+        if line.strip().startswith("MAL_CLIENT_ID="):
+            updated_lines.append(f"MAL_CLIENT_ID={client_id}")
+            replaced = True
+        else:
+            updated_lines.append(line)
+
+    if not replaced:
+        if updated_lines and updated_lines[-1].strip():
+            updated_lines.append("")
+        updated_lines.append(f"MAL_CLIENT_ID={client_id}")
+
+    ENV_FILE.write_text("\n".join(updated_lines).rstrip() + "\n", encoding="utf-8")
+
+
 class LauncherApp:
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
@@ -136,6 +162,7 @@ class LauncherApp:
         self.status_var = tk.StringVar(value="실행할 작업을 선택해 주세요.")
         self.detail_var = tk.StringVar(value="최신 갱신, 풀 재동기화, 과거 백필을 분리해서 실행할 수 있습니다.")
         self.credential_var = tk.StringVar()
+        self.client_id_var = tk.StringVar()
         self.db_status_var = tk.StringVar()
         self.backfill_var = tk.StringVar()
         self.build_var = tk.StringVar()
@@ -160,6 +187,29 @@ class LauncherApp:
         status_box.pack(fill="x", pady=(14, 0))
         tk.Label(status_box, text="현재 DB 상태", font=("Malgun Gothic", 10, "bold"), bg="#f3f7ff", fg="#16233a").pack(anchor="w")
         tk.Label(status_box, textvariable=self.credential_var, font=("Malgun Gothic", 9, "bold"), bg="#f3f7ff", fg="#28446d").pack(anchor="w", pady=(6, 0))
+        client_id_row = tk.Frame(status_box, bg="#f3f7ff")
+        client_id_row.pack(fill="x", pady=(8, 0))
+        tk.Entry(
+            client_id_row,
+            textvariable=self.client_id_var,
+            font=("Malgun Gothic", 9),
+            relief="solid",
+            bd=1,
+        ).pack(side="left", fill="x", expand=True)
+        tk.Button(
+            client_id_row,
+            text="Client ID 저장",
+            command=self.handle_save_client_id,
+            padx=10,
+            pady=4,
+            bg="#1c5bd6",
+            fg="#ffffff",
+            activebackground="#184db5",
+            activeforeground="#ffffff",
+            relief="flat",
+            cursor="hand2",
+            font=("Malgun Gothic", 9, "bold"),
+        ).pack(side="left", padx=(8, 0))
         tk.Label(status_box, textvariable=self.db_status_var, font=("Malgun Gothic", 9), bg="#f3f7ff", fg="#3e4d66", justify="left").pack(anchor="w", pady=(4, 0))
         tk.Label(status_box, textvariable=self.backfill_var, font=("Malgun Gothic", 9), bg="#f3f7ff", fg="#3e4d66", justify="left").pack(anchor="w", pady=(2, 0))
         tk.Label(status_box, textvariable=self.build_var, font=("Malgun Gothic", 9), bg="#f3f7ff", fg="#3e4d66", justify="left").pack(anchor="w", pady=(6, 0))
@@ -228,9 +278,9 @@ class LauncherApp:
         has_key = has_mal_client_id()
 
         if has_key:
-            self.credential_var.set("본인 MAL Client ID가 설정되어 있습니다. 최신 갱신과 과거 백필을 실행할 수 있습니다.")
+            self.credential_var.set("본인 MAL Client ID가 설정되어 있습니다. 아래 입력창에서 새 ID로 바꿔 저장할 수도 있습니다.")
         else:
-            self.credential_var.set("MAL Client ID가 없습니다. 현재 DB로 뷰어만 열 수 있고, DB 업데이트는 비활성화됩니다.")
+            self.credential_var.set("MAL Client ID가 없습니다. 아래 입력창에 붙여넣고 저장하면 DB 업데이트가 활성화됩니다.")
 
         self.db_status_var.set(
             f"최신 시즌 갱신 기준: {status['last_live_sync']} | 현재 저장 작품 수: {status['total_entries']}"
@@ -257,6 +307,18 @@ class LauncherApp:
     def _apply_progress(self, message: str, detail: str) -> None:
         self.status_var.set(message)
         self.detail_var.set(detail)
+
+    def handle_save_client_id(self) -> None:
+        try:
+            save_mal_client_id(self.client_id_var.get())
+        except Exception as exc:
+            messagebox.showerror("오류", str(exc))
+            return
+
+        self.client_id_var.set("")
+        self.refresh_status_panel()
+        self._apply_progress("MAL Client ID를 저장했습니다.", "이제 최신 갱신과 과거 백필 버튼을 사용할 수 있습니다.")
+        messagebox.showinfo("완료", "MAL Client ID를 저장했습니다.")
 
     def start(self, mode: str) -> None:
         self.set_busy(True)
