@@ -466,6 +466,165 @@ def _refresh_status_panel_v2(self: LauncherApp) -> None:
 LauncherApp.refresh_status_panel = _refresh_status_panel_v2
 
 
+ACTION_META.update({
+    "viewer": {
+        "title": "현재 DB 보기",
+        "detail": "저장된 DB로 바로 뷰어를 엽니다.",
+        "button": "현재 DB 보기",
+    },
+    "update_fast": {
+        "title": "빠른 최신 갱신",
+        "detail": "이번 분기와 미래 분기를 빠르게 다시 확인합니다.",
+        "button": "빠른 최신 갱신",
+    },
+    "update": {
+        "title": "풀 재동기화",
+        "detail": "이번 분기와 미래 분기를 링크와 이름 보강까지 다시 갱신합니다.",
+        "button": "풀 재동기화",
+    },
+    "update_and_viewer": {
+        "title": "갱신 후 보기",
+        "detail": "풀 재동기화 뒤에 바로 뷰어를 엽니다.",
+        "button": "갱신 후 보기",
+    },
+    "backfill_year": {
+        "title": "과거 1년 추가",
+        "detail": "과거 시즌 4개를 더 가져옵니다.",
+        "button": "과거 1년 추가",
+    },
+    "repair_metadata_year": {
+        "title": "메타데이터 복구",
+        "detail": "공식 링크와 캐스트/스태프 빈칸을 1년 단위로 보수합니다.",
+        "button": "메타데이터 복구",
+    },
+})
+
+
+def _launcher_make_action_tile_v2(self: LauncherApp, parent: tk.Widget, mode: str, row: int, column: int) -> None:
+    meta = ACTION_META[mode]
+    button = tk.Button(
+        parent,
+        text=meta["button"],
+        command=lambda selected_mode=mode: self.start(selected_mode),
+        padx=8,
+        pady=9,
+        bg="#1c5bd6" if mode == "viewer" else "#ffffff",
+        fg="#ffffff" if mode == "viewer" else "#16233a",
+        activebackground="#184db5" if mode == "viewer" else "#eef4ff",
+        activeforeground="#ffffff" if mode == "viewer" else "#16233a",
+        relief="solid",
+        bd=1,
+        cursor="hand2",
+        font=("Malgun Gothic", 10, "bold"),
+        anchor="center",
+    )
+    button.grid(row=row, column=column, sticky="ew", padx=4, pady=4, ipadx=2)
+    self.buttons_by_mode[mode] = button
+
+
+def _launcher_init_v2(self: LauncherApp, root: tk.Tk) -> None:
+    self.root = root
+    self.root.title("애니메이션 캘린더")
+    self.root.resizable(False, False)
+    self.root.configure(bg="#edf4ff")
+
+    self.status_var = tk.StringVar(value="실행할 작업을 선택해 주세요.")
+    self.detail_var = tk.StringVar(value="버튼을 누르면 현재 선택한 작업만 실행합니다.")
+    self.credential_var = tk.StringVar()
+    self.client_id_var = tk.StringVar()
+    self.db_status_var = tk.StringVar()
+    self.backfill_var = tk.StringVar()
+    self.build_var = tk.StringVar()
+    self.buttons_by_mode = {}
+
+    outer = tk.Frame(root, bg="#edf4ff", padx=14, pady=14)
+    outer.pack(fill="both", expand=True)
+
+    card = tk.Frame(outer, bg="#fcfdff", padx=16, pady=16, bd=1, relief="solid", highlightthickness=0)
+    card.pack(fill="both", expand=True)
+
+    header = tk.Frame(card, bg="#fcfdff")
+    header.pack(fill="x")
+    tk.Label(header, text="애니메이션 캘린더", font=("Malgun Gothic", 15, "bold"), bg="#fcfdff", fg="#16233a").pack(anchor="w")
+
+    id_box = tk.Frame(card, bg="#f3f7ff", padx=10, pady=10, bd=1, relief="solid")
+    id_box.pack(fill="x", pady=(10, 8))
+    tk.Label(id_box, textvariable=self.credential_var, font=("Malgun Gothic", 9), bg="#f3f7ff", fg="#36527a", justify="left").pack(anchor="w")
+    client_row = tk.Frame(id_box, bg="#f3f7ff")
+    client_row.pack(fill="x", pady=(6, 0))
+    tk.Entry(
+        client_row,
+        textvariable=self.client_id_var,
+        font=("Malgun Gothic", 9),
+        relief="solid",
+        bd=1,
+    ).pack(side="left", fill="x", expand=True)
+    tk.Button(
+        client_row,
+        text="Client ID 저장",
+        command=self.handle_save_client_id,
+        padx=8,
+        pady=4,
+        bg="#1c5bd6",
+        fg="#ffffff",
+        activebackground="#184db5",
+        activeforeground="#ffffff",
+        relief="flat",
+        cursor="hand2",
+        font=("Malgun Gothic", 9, "bold"),
+    ).pack(side="left", padx=(6, 0))
+
+    actions_frame = tk.Frame(card, bg="#fcfdff")
+    actions_frame.pack(fill="x")
+    for column in range(3):
+        actions_frame.grid_columnconfigure(column, weight=1)
+
+    modes = (
+        "viewer",
+        "update_fast",
+        "update",
+        "update_and_viewer",
+        "backfill_year",
+        "repair_metadata_year",
+    )
+    for index, mode in enumerate(modes):
+        _launcher_make_action_tile_v2(self, actions_frame, mode, index // 3, index % 3)
+
+    status_box = tk.Frame(card, bg="#f3f7ff", padx=10, pady=10, bd=1, relief="solid")
+    status_box.pack(fill="x", pady=(10, 0))
+    tk.Label(status_box, text="현재 DB 상태", font=("Malgun Gothic", 10, "bold"), bg="#f3f7ff", fg="#16233a").pack(anchor="w")
+    tk.Label(status_box, textvariable=self.db_status_var, font=("Malgun Gothic", 9), bg="#f3f7ff", fg="#3e4d66", justify="left", wraplength=470).pack(anchor="w", pady=(4, 0))
+    tk.Label(status_box, textvariable=self.backfill_var, font=("Malgun Gothic", 9), bg="#f3f7ff", fg="#3e4d66", justify="left", wraplength=470).pack(anchor="w", pady=(2, 0))
+    tk.Label(status_box, textvariable=self.build_var, font=("Malgun Gothic", 9), bg="#f3f7ff", fg="#3e4d66", justify="left", wraplength=470).pack(anchor="w", pady=(2, 0))
+
+    bottom = tk.Frame(card, bg="#fcfdff")
+    bottom.pack(fill="x", pady=(10, 0))
+    tk.Label(
+        bottom,
+        textvariable=self.status_var,
+        justify="left",
+        wraplength=470,
+        font=("Malgun Gothic", 9, "bold"),
+        bg="#fcfdff",
+        fg="#263349",
+    ).pack(anchor="w")
+    tk.Label(
+        bottom,
+        textvariable=self.detail_var,
+        justify="left",
+        wraplength=470,
+        font=("Malgun Gothic", 9),
+        bg="#fcfdff",
+        fg="#627089",
+    ).pack(anchor="w", pady=(2, 0))
+
+    self.refresh_status_panel()
+
+
+LauncherApp._make_action_row = _launcher_make_action_tile_v2
+LauncherApp.__init__ = _launcher_init_v2
+
+
 def main() -> None:
     root = tk.Tk()
     LauncherApp(root)

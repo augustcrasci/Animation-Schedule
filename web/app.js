@@ -1606,8 +1606,8 @@ function renderFinishedView(entries) {
 
   target.innerHTML = `
     <div class="search-wrap">
-      <section class="search-group">
-        <div class="search-head">
+      <section class="list-group">
+        <div class="day-head search-head">
           <h2>${escapeHtml(t("finishedSearchTitle"))}${selectedYearLabel}</h2>
           <span class="day-count">${escapeHtml(formatCount(entries.length))}</span>
         </div>
@@ -1632,8 +1632,8 @@ function renderSearchResults(entries) {
 
   target.innerHTML = `
     <div class="search-wrap">
-      <section class="search-group">
-        <div class="search-head">
+      <section class="list-group">
+        <div class="day-head search-head">
           <h2>${escapeHtml(t("searchResultsTitle"))}</h2>
           <span class="day-count">${escapeHtml(formatCount(entries.length))}</span>
         </div>

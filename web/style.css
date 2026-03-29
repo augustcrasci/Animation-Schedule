@@ -498,6 +498,10 @@ html[data-theme="dark"] .summary-note {
   box-shadow: 0 10px 24px rgba(26, 35, 51, 0.05);
 }
 
+.search-group {
+  background: var(--panel);
+}
+
 .seasonal-upcoming-group {
   margin-top: 10px;
 }
@@ -957,6 +961,11 @@ html[data-theme="dark"] .list-group,
 html[data-theme="dark"] .search-group {
   background: rgba(30, 43, 67, 0.95);
 }
+
+html[data-theme="dark"] .search-group {
+  background: var(--panel);
+}
+
 
 .card-top,
 .card-title-row,
