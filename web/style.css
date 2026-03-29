@@ -44,7 +44,7 @@ body {
   margin: 0;
   min-height: 100vh;
   color: var(--text);
-  font-family: "Malgun Gothic", "Segoe UI", "Noto Sans JP", sans-serif;
+  font-family: "Noto Sans JP", "Noto Sans CJK JP", "Malgun Gothic", "Noto Sans CJK KR", "Segoe UI", sans-serif;
   background:
     radial-gradient(circle at top left, rgba(11, 91, 211, 0.1), transparent 30%),
     radial-gradient(circle at top right, rgba(209, 75, 63, 0.08), transparent 24%),
@@ -261,7 +261,7 @@ input {
   pointer-events: none;
 }
 
-.toolbar-row + .toolbar-row {
+.toolbar-row+.toolbar-row {
   margin-top: 16px;
 }
 
