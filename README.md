@@ -2,7 +2,7 @@
 
 일본 최속 방영 기준으로 애니메이션 일정을 정리해서 보는 로컬 스케줄러입니다.
 
-주간 방영표, 리스트, 완결작 라이브러리, 극장판 일정, 작품/성우/스태프/회사 즐겨찾기, 상세 정보 모달을 한 화면에서 볼 수 있도록 구성되어 있습니다.
+주간 방영표, 리스트 보기, 완결작 라이브러리, 극장판 일정, 작품/성우/스태프/회사 즐겨찾기, 상세 정보 모달을 한 화면에서 볼 수 있도록 구성되어 있습니다.
 
 ## 주요 기능
 - 일본 최속 기준 방영일 / 방영 시간 표시
@@ -10,7 +10,7 @@
 - 요일별 방영표 / 리스트 / 완결작 / 극장판 보기
 - 작품 좋아요, 성우/스태프 좋아요, 회사 좋아요
 - 작품 상세 정보에서 공식 홈페이지, X, 스태프, 캐스트 확인
-- 성우 / 스태프 / 회사별 관련 작품 모달
+- 성우 / 스태프 / 회사별 관련 작품 보기
 - MyAnimeList 기반 수집 + 로컬 JSON 빌드
 
 ## 데이터 소스
@@ -31,6 +31,7 @@ python -m app.run_mode viewer
 python -m app.run_mode update_fast
 python -m app.run_mode update
 python -m app.run_mode backfill_year
+python -m app.run_mode repair_metadata_year
 ```
 
 실행 모드:
@@ -42,6 +43,8 @@ python -m app.run_mode backfill_year
   이번 분기와 미래 분기를 풀 재동기화합니다.
 - `backfill_year`
   과거 시즌 1년치(4개 시즌)를 추가 수집합니다.
+- `repair_metadata_year`
+  과거 DB의 공식 링크 / 캐스트 / 스태프 빈칸을 1년 단위로 복구합니다.
 
 ## MAL API 사용 방식
 - DB 업데이트에는 `MAL_CLIENT_ID`가 필요합니다.
@@ -82,6 +85,11 @@ web/
   style.css
 launcher.pyw
 ```
+
+## 용량 참고
+- 현재 저장소 용량의 대부분은 DB JSON이 차지합니다.
+- 특히 `data/anime_schedule_compiled.json`과 `data/anime_schedule.json`이 가장 큽니다.
+- DB를 함께 배포하는 구조라 ZIP 다운로드 용량이 큰 편입니다.
 
 ## 현재 정리 상태
 - 최신 시즌 갱신과 과거 백필이 분리되어 있습니다.

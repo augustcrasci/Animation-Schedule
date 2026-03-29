@@ -49,6 +49,7 @@ body {
     radial-gradient(circle at top left, rgba(11, 91, 211, 0.1), transparent 30%),
     radial-gradient(circle at top right, rgba(209, 75, 63, 0.08), transparent 24%),
     linear-gradient(180deg, #f7faff 0%, #eef4fb 52%, #e7eef8 100%);
+  background-attachment: fixed, fixed, fixed;
 }
 
 html[data-theme="dark"] body {
@@ -56,6 +57,7 @@ html[data-theme="dark"] body {
     radial-gradient(circle at top left, rgba(110, 168, 255, 0.14), transparent 30%),
     radial-gradient(circle at top right, rgba(255, 142, 126, 0.1), transparent 24%),
     linear-gradient(180deg, #0c1220 0%, #0f1728 55%, #121b2f 100%);
+  background-attachment: fixed, fixed, fixed;
 }
 
 button,

@@ -532,9 +532,11 @@ def _launcher_init_v2(self: LauncherApp, root: tk.Tk) -> None:
     self.detail_var = tk.StringVar(value="버튼을 누르면 현재 선택한 작업만 실행합니다.")
     self.credential_var = tk.StringVar()
     self.client_id_var = tk.StringVar()
-    self.db_status_var = tk.StringVar()
-    self.backfill_var = tk.StringVar()
-    self.build_var = tk.StringVar()
+    self.live_sync_value_var = tk.StringVar()
+    self.entries_value_var = tk.StringVar()
+    self.backfill_value_var = tk.StringVar()
+    self.repair_value_var = tk.StringVar()
+    self.build_value_var = tk.StringVar()
     self.buttons_by_mode = {}
 
     outer = tk.Frame(root, bg="#edf4ff", padx=14, pady=14)
@@ -593,9 +595,34 @@ def _launcher_init_v2(self: LauncherApp, root: tk.Tk) -> None:
     status_box = tk.Frame(card, bg="#f3f7ff", padx=10, pady=10, bd=1, relief="solid")
     status_box.pack(fill="x", pady=(10, 0))
     tk.Label(status_box, text="현재 DB 상태", font=("Malgun Gothic", 10, "bold"), bg="#f3f7ff", fg="#16233a").pack(anchor="w")
-    tk.Label(status_box, textvariable=self.db_status_var, font=("Malgun Gothic", 9), bg="#f3f7ff", fg="#3e4d66", justify="left", wraplength=470).pack(anchor="w", pady=(4, 0))
-    tk.Label(status_box, textvariable=self.backfill_var, font=("Malgun Gothic", 9), bg="#f3f7ff", fg="#3e4d66", justify="left", wraplength=470).pack(anchor="w", pady=(2, 0))
-    tk.Label(status_box, textvariable=self.build_var, font=("Malgun Gothic", 9), bg="#f3f7ff", fg="#3e4d66", justify="left", wraplength=470).pack(anchor="w", pady=(2, 0))
+    status_grid = tk.Frame(status_box, bg="#f3f7ff")
+    status_grid.pack(fill="x", pady=(6, 0))
+    status_rows = (
+        ("최신 동기화", self.live_sync_value_var),
+        ("전체 엔트리", self.entries_value_var),
+        ("백필 범위", self.backfill_value_var),
+        ("복구 범위", self.repair_value_var),
+        ("마지막 빌드", self.build_value_var),
+    )
+    for row_index, (label_text, value_var) in enumerate(status_rows):
+        tk.Label(
+            status_grid,
+            text=label_text,
+            font=("Malgun Gothic", 9, "bold"),
+            bg="#f3f7ff",
+            fg="#36527a",
+            width=11,
+            anchor="w",
+        ).grid(row=row_index, column=0, sticky="w", pady=1)
+        tk.Label(
+            status_grid,
+            textvariable=value_var,
+            font=("Malgun Gothic", 9),
+            bg="#f3f7ff",
+            fg="#3e4d66",
+            justify="left",
+            anchor="w",
+        ).grid(row=row_index, column=1, sticky="w", pady=1, padx=(8, 0))
 
     bottom = tk.Frame(card, bg="#fcfdff")
     bottom.pack(fill="x", pady=(10, 0))
@@ -623,6 +650,29 @@ def _launcher_init_v2(self: LauncherApp, root: tk.Tk) -> None:
 
 LauncherApp._make_action_row = _launcher_make_action_tile_v2
 LauncherApp.__init__ = _launcher_init_v2
+
+
+def _refresh_status_panel_v3(self: LauncherApp) -> None:
+    status = load_launcher_status()
+    has_key = has_mal_client_id()
+
+    if has_key:
+        self.credential_var.set("MAL Client ID가 설정되어 있습니다. 아래에서 다른 ID로 교체할 수도 있습니다.")
+    else:
+        self.credential_var.set("MAL Client ID가 없습니다. 입력 후 저장하면 업데이트 기능이 활성화됩니다.")
+
+    self.live_sync_value_var.set(status["last_live_sync"])
+    self.entries_value_var.set(status["total_entries"])
+    self.backfill_value_var.set(f"{status['oldest_completed']} / 다음 {status['next_backfill']}")
+    self.repair_value_var.set(f"{status['repair_range']} / 마지막 {status['last_repair_year']} / 다음 {status['next_repair_year']}")
+    self.build_value_var.set(f"{status['last_build']} / 복구 {status['last_repair_at']}")
+
+    for mode, button in self.buttons_by_mode.items():
+        is_update_action = mode in {"update_fast", "update", "backfill_year", "repair_metadata_year", "update_and_viewer"}
+        button.configure(state=tk.NORMAL if (has_key or not is_update_action) else tk.DISABLED)
+
+
+LauncherApp.refresh_status_panel = _refresh_status_panel_v3
 
 
 def main() -> None:

@@ -1,59 +1,189 @@
 {
-  "generated_at": "2026-03-29T01:07:38+09:00",
+  "generated_at": "2026-03-29T10:46:45+09:00",
   "summary": {
-    "added": 0,
+    "added": 3,
     "removed": 0,
-    "changed": 2
+    "changed": 6
   },
-  "added": [],
+  "added": [
+    {
+      "id": "mal-anime-49233",
+      "status": "not_yet_aired",
+      "ja": "幼女戦記 II",
+      "en": "Saga of Tanya the Evil II",
+      "day_of_week": "WED",
+      "date": "2026-07-01",
+      "time": "99:99",
+      "sort_at": "2026-07-01T23:59:00+09:00",
+      "official": "http://youjo-senki.jp/tv/"
+    },
+    {
+      "id": "mal-anime-59204",
+      "status": "not_yet_aired",
+      "ja": "魔法騎士レイアース",
+      "en": "Magic Knight Rayearth (2026)",
+      "day_of_week": "WED",
+      "date": "2026-10-01",
+      "time": "23:45",
+      "sort_at": "2026-10-01T23:45:00+09:00",
+      "official": "https://rayearth-anime.com/"
+    },
+    {
+      "id": "mal-anime-63736",
+      "status": "not_yet_aired",
+      "ja": "Unanswered//butterfly: Sword Art Online",
+      "en": "Sword Art Online: Unanswered//butterfly",
+      "day_of_week": "THU",
+      "date": "2026-07-09",
+      "time": "99:99",
+      "sort_at": "2026-07-09T23:59:00+09:00",
+      "official": "https://eoa.sao-game.jp/unanswered_butterfly/"
+    }
+  ],
   "removed": [],
   "changed": [
     {
       "before": {
-        "id": "mal-anime-57961",
-        "status": "not_yet_aired",
-        "ja": "楽園追放 心のレゾナンス",
-        "en": "Rakuen Tsuihou: Kokoro no Resonance",
-        "day_of_week": "FRI",
-        "date": "2026-11-13",
-        "time": "99:99",
-        "sort_at": "2026-11-13T23:59:00+09:00",
-        "official": null
+        "id": "mal-anime-54863",
+        "status": "currently_airing",
+        "ja": "TRIGUN STARGAZE",
+        "en": "Trigun Stargaze",
+        "day_of_week": "SAT",
+        "date": "2026-01-10",
+        "time": "23:00",
+        "sort_at": "2026-01-10T23:00:00+09:00",
+        "official": "http://trigun-anime.com/"
       },
       "after": {
-        "id": "mal-anime-57961",
-        "status": "not_yet_aired",
-        "ja": "楽園追放 心のレゾナンス",
-        "en": "Rakuen Tsuihou: Kokoro no Resonance",
-        "day_of_week": "FRI",
-        "date": "2026-11-13",
-        "time": "99:99",
-        "sort_at": "2026-11-13T23:59:00+09:00",
-        "official": "https://rakuen-tsuiho.com/"
+        "id": "mal-anime-54863",
+        "status": "finished_airing",
+        "ja": "TRIGUN STARGAZE",
+        "en": "Trigun Stargaze",
+        "day_of_week": "SAT",
+        "date": "2026-01-10",
+        "time": "23:00",
+        "sort_at": "2026-01-10T23:00:00+09:00",
+        "official": "http://trigun-anime.com/"
       }
     },
     {
       "before": {
-        "id": "mal-anime-61987",
-        "status": "not_yet_aired",
-        "ja": "薬屋のひとりごと 第3期",
-        "en": "The Apothecary Diaries Season 3",
-        "day_of_week": "THU",
-        "date": "2026-10-01",
-        "time": "99:99",
-        "sort_at": "2026-10-01T23:59:00+09:00",
-        "official": null
+        "id": "mal-anime-55830",
+        "status": "currently_airing",
+        "ja": "Fate/strange Fake",
+        "en": "Fate/strange Fake",
+        "day_of_week": "SAT",
+        "date": "2026-01-03",
+        "time": "23:30",
+        "sort_at": "2026-01-03T23:30:00+09:00",
+        "official": "https://fate-strange-fake.com"
       },
       "after": {
-        "id": "mal-anime-61987",
+        "id": "mal-anime-55830",
+        "status": "finished_airing",
+        "ja": "Fate/strange Fake",
+        "en": "Fate/strange Fake",
+        "day_of_week": "SAT",
+        "date": "2026-01-03",
+        "time": "23:30",
+        "sort_at": "2026-01-03T23:30:00+09:00",
+        "official": "https://fate-strange-fake.com"
+      }
+    },
+    {
+      "before": {
+        "id": "mal-anime-61196",
+        "status": "currently_airing",
+        "ja": "デッドアカウント",
+        "en": "Dead Account",
+        "day_of_week": "SAT",
+        "date": "2026-01-10",
+        "time": "23:30",
+        "sort_at": "2026-01-10T23:30:00+09:00",
+        "official": "https://dead-account.com/"
+      },
+      "after": {
+        "id": "mal-anime-61196",
+        "status": "finished_airing",
+        "ja": "デッドアカウント",
+        "en": "Dead Account",
+        "day_of_week": "SAT",
+        "date": "2026-01-10",
+        "time": "23:30",
+        "sort_at": "2026-01-10T23:30:00+09:00",
+        "official": "https://dead-account.com/"
+      }
+    },
+    {
+      "before": {
+        "id": "mal-anime-61207",
+        "status": "currently_airing",
+        "ja": "転生したらドラゴンの卵だった",
+        "en": "Reincarnated as a Dragon Hatchling",
+        "day_of_week": "SAT",
+        "date": "2026-01-10",
+        "time": "21:30",
+        "sort_at": "2026-01-10T21:30:00+09:00",
+        "official": "https://doratama-anime.com/"
+      },
+      "after": {
+        "id": "mal-anime-61207",
+        "status": "finished_airing",
+        "ja": "転生したらドラゴンの卵だった",
+        "en": "Reincarnated as a Dragon Hatchling",
+        "day_of_week": "SAT",
+        "date": "2026-01-10",
+        "time": "21:30",
+        "sort_at": "2026-01-10T21:30:00+09:00",
+        "official": "https://doratama-anime.com/"
+      }
+    },
+    {
+      "before": {
+        "id": "mal-anime-61323",
         "status": "not_yet_aired",
-        "ja": "薬屋のひとりごと 第3期",
-        "en": "The Apothecary Diaries Season 3",
-        "day_of_week": "THU",
-        "date": "2026-10-01",
-        "time": "99:99",
-        "sort_at": "2026-10-01T23:59:00+09:00",
-        "official": "https://kusuriyanohitorigoto.jp/"
+        "ja": "アオのハコ Season2",
+        "en": "Blue Box Season 2",
+        "day_of_week": "SAT",
+        "date": "2026-10-04",
+        "time": "16:30",
+        "sort_at": "2026-10-04T16:30:00+09:00",
+        "official": "https://aonohako-anime.com/"
+      },
+      "after": {
+        "id": "mal-anime-61323",
+        "status": "not_yet_aired",
+        "ja": "アオのハコ Season2",
+        "en": "Blue Box Season 2",
+        "day_of_week": "SUN",
+        "date": "2026-10-04",
+        "time": "16:30",
+        "sort_at": "2026-10-04T16:30:00+09:00",
+        "official": "https://aonohako-anime.com/"
+      }
+    },
+    {
+      "before": {
+        "id": "mal-anime-61443",
+        "status": "not_yet_aired",
+        "ja": "春夏秋冬代行者 春の舞",
+        "en": "Agents of the Four Seasons: Dance of Spring",
+        "day_of_week": "SUN",
+        "date": "2026-03-29",
+        "time": "00:00",
+        "sort_at": "2026-03-29T00:00:00+09:00",
+        "official": "https://4seasons-anime.com/"
+      },
+      "after": {
+        "id": "mal-anime-61443",
+        "status": "currently_airing",
+        "ja": "春夏秋冬代行者 春の舞",
+        "en": "Agents of the Four Seasons: Dance of Spring",
+        "day_of_week": "SUN",
+        "date": "2026-03-29",
+        "time": "00:00",
+        "sort_at": "2026-03-29T00:00:00+09:00",
+        "official": "https://4seasons-anime.com/"
       }
     }
   ]
