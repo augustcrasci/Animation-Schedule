@@ -60,9 +60,15 @@ def load_json(path: str | Path, default: Any) -> Any:
         return default
 
 
-def save_json(path: str | Path, payload: Any) -> None:
+def save_json(path: str | Path, payload: Any, *, pretty: bool | None = None) -> None:
     target = Path(path)
     if not target.is_absolute():
         target = DATA_DIR / target
     ensure_parent(target)
-    target.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    if pretty is None:
+        pretty = target.name not in {SOURCE_DATA_FILE.name, COMPILED_DATA_FILE.name}
+    if pretty:
+        text = json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
+    else:
+        text = json.dumps(payload, ensure_ascii=False, separators=(",", ":")) + "\n"
+    target.write_text(text, encoding="utf-8")
