@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Any, Callable
 
 from app.calendar_common import CHANGE_SUMMARY_FILE, COMPILED_DATA_FILE, SOURCE_DATA_FILE, SOURCE_STATE_FILE, has_mal_client_id, load_json, save_json
+from app.enrich_credits import enrich_credits
 from app.enrich_external_links import enrich_external_links
 from app.enrich_names import enrich_names
 from app.fetch_seasons import sync_seasons
@@ -44,6 +45,10 @@ def build_collector_status() -> dict[str, Any]:
     completed = [parse_season_ref(item) for item in state.get("completed_seasons", [])]
     completed = [item for item in completed if item]
     oldest_completed = min(completed, key=season_sort_key) if completed else None
+    repaired_years = sorted([
+        int(item) for item in (state.get("repaired_metadata_years") or [])
+        if str(item).isdigit()
+    ])
     source_payload = load_json(SOURCE_DATA_FILE, {})
     dataset_meta = source_payload.get("dataset", {}) if isinstance(source_payload, dict) else {}
 
@@ -52,6 +57,9 @@ def build_collector_status() -> dict[str, Any]:
         "oldest_completed_season": oldest_completed,
         "next_backfill": parse_season_ref(state.get("next_backfill")),
         "last_link_refresh_at": dataset_meta.get("last_link_refresh_at"),
+        "repaired_metadata_years": repaired_years,
+        "last_metadata_repair_year": state.get("last_metadata_repair_year"),
+        "last_metadata_repair_at": state.get("last_metadata_repair_at"),
     }
 
 
@@ -293,6 +301,10 @@ def main(
         if progress_callback:
             progress_callback("Refreshing official links.", "Missing official pages and X links are being rechecked from MAL HTML.")
         enrich_external_links(limit=link_refresh_limit_override, progress_callback=progress_callback)
+
+    if progress_callback:
+        progress_callback("Enriching missing credits.", "AniList is filling cast and staff for titles whose credits are still empty.")
+    enrich_credits(progress_callback=progress_callback)
 
     if enrich_japanese_names:
         if progress_callback:

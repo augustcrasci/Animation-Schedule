@@ -11,7 +11,7 @@
     <header class="hero panel">
       <div class="hero-copy">
         <p id="hero-eyebrow" class="eyebrow">애니메이션 캘린더</p>
-        <h1 id="hero-title">일본 최속 방영표</h1>
+        <button id="hero-title" class="hero-home" type="button">일본 최속 방영표</button>
         <p id="hero-text" class="hero-text">주간 방영표, 완결작 라이브러리, 극장판 개봉 일정을 한 화면에서 다루는 애니메이션 스케줄러입니다.</p>
       </div>
       <div class="hero-meta">
@@ -34,17 +34,21 @@
     </header>
 
     <section class="toolbar panel">
-      <div class="toolbar-row">
-        <label class="search-box">
+      <div class="toolbar-row toolbar-top-row">
+        <label class="search-box toolbar-top-search">
           <span id="search-label">검색</span>
           <input id="search-input" type="search" autocomplete="off" spellcheck="false" placeholder="제목, 스태프, 태그, 스튜디오 검색">
         </label>
-        <label class="toggle-box">
+        <div class="toolbar-top-favorites">
+          <label class="toggle-box toolbar-top-toggle">
           <input id="favorites-only" type="checkbox">
           <span id="favorites-only-label">좋아요만 보기</span>
-        </label>
-        <div id="favorite-scope-filters" class="day-filters favorite-scope-filters hidden"></div>
-        <div class="toolbar-actions">
+          </label>
+          <div id="favorite-scope-row" class="favorite-scope-row is-inactive">
+            <div id="favorite-scope-filters" class="day-filters favorite-scope-filters"></div>
+          </div>
+        </div>
+        <div class="toolbar-actions toolbar-top-actions">
           <button id="open-favorites" class="ghost-btn" type="button">좋아요</button>
           <button id="theme-toggle" class="ghost-btn" type="button">다크</button>
           <button id="lang-toggle" class="ghost-btn" type="button">EN</button>
@@ -116,6 +120,21 @@
         <button id="detail-close" class="ghost-btn" type="button" data-close-modal="detail">닫기</button>
       </div>
       <div id="detail-body" class="detail-body"></div>
+    </div>
+  </div>
+
+  <div id="relation-modal" class="modal hidden" aria-hidden="true">
+    <div class="modal-backdrop" data-close-modal="relation"></div>
+    <div class="modal-card detail-card panel">
+      <div class="modal-head">
+        <div>
+          <p class="eyebrow" id="relation-kicker">인물 / 회사</p>
+          <h2 id="relation-title">-</h2>
+          <p id="relation-subtitle" class="detail-subtitle">-</p>
+        </div>
+        <button id="relation-close" class="ghost-btn" type="button" data-close-modal="relation">닫기</button>
+      </div>
+      <div id="relation-body" class="detail-body"></div>
     </div>
   </div>
 

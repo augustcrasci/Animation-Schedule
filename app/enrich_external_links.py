@@ -30,6 +30,7 @@ def link_candidate_sort_key(entry: dict[str, Any]) -> tuple[int, int, int, int, 
 def enrich_external_links(
     *,
     limit: int | None = None,
+    year_filter: int | None = None,
     progress_callback: ProgressCallback | None = None,
 ) -> bool:
     payload = load_json(SOURCE_DATA_FILE, {})
@@ -40,7 +41,10 @@ def enrich_external_links(
         limit = max(0, int(get_env("ANIME_ENRICH_LINKS_PER_RUN", "120") or "120"))
 
     entries = payload.get("entries", [])
-    candidates = [entry for entry in entries if needs_link_refresh(entry)]
+    candidates = [
+        entry for entry in entries
+        if needs_link_refresh(entry) and (year_filter is None or int((entry.get("season") or {}).get("year") or 0) == int(year_filter))
+    ]
     candidates.sort(key=link_candidate_sort_key)
     if limit > 0:
         candidates = candidates[:limit]

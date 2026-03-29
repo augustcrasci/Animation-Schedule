@@ -9,12 +9,17 @@
     "season": "fall"
   },
   "next_backfill": {
-    "year": 2018,
-    "season": "spring"
+    "year": 2017,
+    "season": "winter"
   },
   "completed_seasons": [
+    "2017-fall",
+    "2017-spring",
+    "2017-summer",
     "2018-fall",
+    "2018-spring",
     "2018-summer",
+    "2018-winter",
     "2019-fall",
     "2019-spring",
     "2019-summer",
@@ -48,5 +53,19 @@
     "2026-summer",
     "2026-winter"
   ],
-  "last_successful_sync_at": "2026-03-28T16:11:44+09:00"
+  "last_successful_sync_at": "2026-03-28T17:10:37+09:00",
+  "repaired_metadata_years": [
+    2017,
+    2018,
+    2019,
+    2020,
+    2021,
+    2022,
+    2023,
+    2024,
+    2025,
+    2026
+  ],
+  "last_metadata_repair_year": 2026,
+  "last_metadata_repair_at": "2026-03-29T01:07:35+09:00"
 }

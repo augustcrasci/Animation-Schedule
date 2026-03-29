@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+import time
 from dataclasses import dataclass
 from typing import Any
+from urllib.error import HTTPError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
@@ -11,6 +13,7 @@ from app.calendar_common import get_env
 
 API_ROOT = "https://api.myanimelist.net/v2"
 USER_AGENT = "animation-calendar/0.1"
+_LAST_REQUEST_AT = 0.0
 
 
 class MalClientError(RuntimeError):
@@ -28,6 +31,15 @@ class MalClient:
             raise MalClientError("MAL_CLIENT_ID is missing. Add it to .env before running the collector.")
         return cls(client_id=client_id)
 
+    def _throttle(self) -> None:
+        global _LAST_REQUEST_AT
+        interval = max(0.0, float(get_env("MAL_REQUEST_INTERVAL_SECONDS", "0.35") or "0.35"))
+        if not interval:
+            return
+        elapsed = time.time() - _LAST_REQUEST_AT
+        if elapsed < interval:
+            time.sleep(interval - elapsed)
+
     def _headers(self) -> dict[str, str]:
         return {
             "X-MAL-CLIENT-ID": self.client_id,
@@ -36,24 +48,57 @@ class MalClient:
         }
 
     def _request_json(self, url: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+        global _LAST_REQUEST_AT
         if params:
             query = urlencode({key: value for key, value in params.items() if value is not None})
             url = f"{url}?{query}"
 
         request = Request(url, headers=self._headers(), method="GET")
-        try:
-            with urlopen(request, timeout=60) as response:
-                return json.loads(response.read().decode("utf-8"))
-        except Exception as exc:  # pragma: no cover - network error branch
-            raise MalClientError(f"MAL API request failed: {url}") from exc
+        attempts = 3
+        for attempt in range(attempts):
+            self._throttle()
+            try:
+                with urlopen(request, timeout=60) as response:
+                    data = json.loads(response.read().decode("utf-8"))
+                _LAST_REQUEST_AT = time.time()
+                return data
+            except HTTPError as exc:  # pragma: no cover - network error branch
+                _LAST_REQUEST_AT = time.time()
+                if exc.code in {405, 429, 500, 502, 503, 504} and attempt + 1 < attempts:
+                    time.sleep(1.5 * (attempt + 1))
+                    continue
+                raise MalClientError(f"MAL API request failed: {url}") from exc
+            except Exception as exc:  # pragma: no cover - network error branch
+                _LAST_REQUEST_AT = time.time()
+                raise MalClientError(f"MAL API request failed: {url}") from exc
+        raise MalClientError(f"MAL API request failed: {url}")
 
     def _request_text(self, url: str) -> str:
+        global _LAST_REQUEST_AT
         request = Request(url, headers={"User-Agent": USER_AGENT}, method="GET")
-        try:
-            with urlopen(request, timeout=60) as response:
-                return response.read().decode("utf-8", errors="replace")
-        except Exception as exc:  # pragma: no cover - network error branch
-            raise MalClientError(f"MAL page request failed: {url}") from exc
+        attempts = 3
+        for attempt in range(attempts):
+            self._throttle()
+            try:
+                with urlopen(request, timeout=60) as response:
+                    text = response.read().decode("utf-8", errors="replace")
+                _LAST_REQUEST_AT = time.time()
+                if "Human Verification" in text and attempt + 1 < attempts:
+                    time.sleep(2.0 * (attempt + 1))
+                    continue
+                if "Human Verification" in text:
+                    raise MalClientError(f"MAL page request failed: {url}")
+                return text
+            except HTTPError as exc:  # pragma: no cover - network error branch
+                _LAST_REQUEST_AT = time.time()
+                if exc.code in {405, 429, 500, 502, 503, 504} and attempt + 1 < attempts:
+                    time.sleep(2.0 * (attempt + 1))
+                    continue
+                raise MalClientError(f"MAL page request failed: {url}") from exc
+            except Exception as exc:  # pragma: no cover - network error branch
+                _LAST_REQUEST_AT = time.time()
+                raise MalClientError(f"MAL page request failed: {url}") from exc
+        raise MalClientError(f"MAL page request failed: {url}")
 
     def get_season(self, year: int, season: str, *, limit: int = 100) -> list[dict[str, Any]]:
         fields = ",".join(

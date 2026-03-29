@@ -23,6 +23,8 @@ const FAVORITE_SCOPE_ORDER = ["TITLE", "CAST", "STAFF", "STUDIO"];
 const LANG_STORAGE_KEY = "anime_calendar_lang";
 const THEME_STORAGE_KEY = "anime_calendar_theme";
 const UI_STATE_STORAGE_KEY = "anime_calendar_ui_state";
+const DEFAULT_RELATION_WORK_LIMIT = 12;
+const RELATION_WORK_INCREMENT = 12;
 
 const TEXT = {
   ko: {
@@ -234,8 +236,10 @@ const state = {
   entries: [],
   entryIndex: new Map(),
   peopleIndex: new Map(),
+  personAliasIndex: new Map(),
   studioIndex: new Map(),
   currentDetailEntryId: null,
+  currentRelation: null,
   viewMode: localStorage.getItem(VIEW_STORAGE_KEY) || "board",
   movieTab: savedUiState.movieTab || "now",
   scheduleStatus: savedUiState.scheduleStatus || "airing",
@@ -245,12 +249,153 @@ const state = {
   selectedMedia: normalizeSelectedMedia(savedUiState.selectedMedia),
   selectedFavoriteScopes: normalizeFavoriteScopes(savedUiState.selectedFavoriteScopes),
   search: savedUiState.search || "",
+  searchDraft: savedUiState.search || "",
   favoritesOnly: Boolean(savedUiState.favoritesOnly),
   activeCount: 0,
   finishedCount: 0,
   lang: localStorage.getItem(LANG_STORAGE_KEY) || "ko",
   theme: localStorage.getItem(THEME_STORAGE_KEY) || "light",
 };
+
+let modalStackCounter = 30;
+let searchCommitTimer = null;
+let searchComposing = false;
+
+function canonicalPersonId(personId) {
+  const rawId = String(personId || "").trim();
+  if (!rawId) {
+    return "";
+  }
+  return state.personAliasIndex.get(rawId) || rawId;
+}
+
+function normalizePersonName(value) {
+  return String(value || "").trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function personMergeKey(person) {
+  const ja = normalizePersonName(person.name_ja);
+  if (ja) {
+    return `ja:${ja}`;
+  }
+  const en = normalizePersonName(person.name).replaceAll(",", "");
+  if (en) {
+    return `en:${en}`;
+  }
+  return `id:${String(person.id || "").trim()}`;
+}
+
+function choosePreferredText(currentValue, candidateValue) {
+  const current = String(currentValue || "").trim();
+  const candidate = String(candidateValue || "").trim();
+  if (!current) {
+    return candidate;
+  }
+  if (!candidate) {
+    return current;
+  }
+  if (candidate.length > current.length) {
+    return candidate;
+  }
+  return current;
+}
+
+function personIdPriority(personId) {
+  const value = String(personId || "").trim();
+  if (/^\d+$/.test(value)) {
+    return 0;
+  }
+  if (value && !value.startsWith("ani-person-")) {
+    return 1;
+  }
+  return 2;
+}
+
+function mergePersonRoleLists(targetRoles, sourceRoles) {
+  const merged = new Map();
+  [...(targetRoles || []), ...(sourceRoles || [])].forEach((item) => {
+    const key = [
+      item.kind || "",
+      item.entry_id || "",
+      item.role || "",
+      item.character_id || "",
+      item.character_name_ja || "",
+      item.character_name || "",
+      item.name_ja || "",
+      item.name || "",
+    ].join("|");
+    if (!merged.has(key)) {
+      merged.set(key, item);
+    }
+  });
+  return [...merged.values()];
+}
+
+function mergePeopleIndex(rawPeople) {
+  const grouped = new Map();
+
+  (rawPeople || []).forEach((person) => {
+    const rawId = String(person.id || "").trim();
+    if (!rawId) {
+      return;
+    }
+    const key = personMergeKey(person);
+
+    if (!grouped.has(key)) {
+      grouped.set(key, {
+        id: rawId,
+        aliases: new Set([rawId]),
+        name: String(person.name || "").trim(),
+        name_ja: String(person.name_ja || "").trim(),
+        entry_ids: [...new Set(person.entry_ids || [])],
+        roles: [...(person.roles || [])],
+      });
+      return;
+    }
+
+    const merged = grouped.get(key);
+    merged.aliases.add(rawId);
+    if (personIdPriority(rawId) < personIdPriority(merged.id)) {
+      merged.id = rawId;
+    }
+    merged.name = choosePreferredText(merged.name, person.name);
+    merged.name_ja = choosePreferredText(merged.name_ja, person.name_ja);
+    merged.entry_ids = [...new Set([...(merged.entry_ids || []), ...(person.entry_ids || [])])];
+    merged.roles = mergePersonRoleLists(merged.roles, person.roles);
+  });
+
+  const peopleMap = new Map();
+  const aliasMap = new Map();
+  [...grouped.values()].forEach((person) => {
+    const merged = {
+      id: person.id,
+      name: person.name,
+      name_ja: person.name_ja,
+      entry_ids: [...new Set(person.entry_ids || [])],
+      roles: mergePersonRoleLists([], person.roles),
+      aliases: [...person.aliases],
+    };
+    peopleMap.set(String(merged.id), merged);
+    merged.aliases.forEach((aliasId) => {
+      aliasMap.set(String(aliasId), String(merged.id));
+    });
+  });
+
+  return { peopleMap, aliasMap };
+}
+
+function migratePersonFavoritesStorage() {
+  let rawFavorites = [];
+  try {
+    rawFavorites = JSON.parse(localStorage.getItem(PERSON_FAVORITES_STORAGE_KEY) || "[]");
+  } catch {
+    rawFavorites = [];
+  }
+  const normalized = [...new Set(rawFavorites.map((personId) => canonicalPersonId(personId)).filter(Boolean))];
+  if (JSON.stringify(rawFavorites) !== JSON.stringify(normalized)) {
+    localStorage.setItem(PERSON_FAVORITES_STORAGE_KEY, JSON.stringify(normalized));
+  }
+}
 
 function persistUiState() {
   localStorage.setItem(UI_STATE_STORAGE_KEY, JSON.stringify({
@@ -264,6 +409,35 @@ function persistUiState() {
     search: state.search,
     favoritesOnly: state.favoritesOnly,
   }));
+}
+
+function clearSearchCommitTimer() {
+  if (!searchCommitTimer) {
+    return;
+  }
+  clearTimeout(searchCommitTimer);
+  searchCommitTimer = null;
+}
+
+function commitSearchDraft() {
+  clearSearchCommitTimer();
+  const nextSearch = String(state.searchDraft || "").trim();
+  if (state.search === nextSearch) {
+    return;
+  }
+  state.search = nextSearch;
+  render();
+}
+
+function queueSearchCommit() {
+  clearSearchCommitTimer();
+  searchCommitTimer = setTimeout(() => {
+    searchCommitTimer = null;
+    if (searchComposing) {
+      return;
+    }
+    commitSearchDraft();
+  }, 320);
 }
 
 function t(key) {
@@ -329,11 +503,16 @@ function activeMetaNote() {
 }
 
 function finishedMetaNote() {
+  const totalFinishedEntries = state.entries.filter((entry) => entry.finished).length;
   const oldestSeason = formatCollectorSeason(state.dataset?.collector_status?.oldest_completed_season);
   if (oldestSeason === "-") {
-    return state.lang === "ko" ? "과거 수집 범위 기록 없음" : "No backfill range recorded";
+    return state.lang === "ko"
+      ? `영화 포함 완결 엔트리 ${formatEntryCount(totalFinishedEntries)}`
+      : `${formatEntryCount(totalFinishedEntries)} finished incl. movies`;
   }
-  return state.lang === "ko" ? `${oldestSeason}까지 수집` : `Collected through ${oldestSeason}`;
+  return state.lang === "ko"
+    ? `영화 포함 ${formatEntryCount(totalFinishedEntries)} | ${oldestSeason}까지 수집`
+    : `${formatEntryCount(totalFinishedEntries)} incl. movies | through ${oldestSeason}`;
 }
 
 function metaStatusSubtext() {
@@ -358,6 +537,35 @@ function favoriteScopeLabel(scope) {
     return t("favoriteScopeStudio");
   }
   return scope;
+}
+
+function relationWorkLimit(type, id) {
+  if (
+    state.currentRelation
+    && state.currentRelation.type === type
+    && String(state.currentRelation.id) === String(id)
+    && Number.isFinite(state.currentRelation.visibleWorkCount)
+  ) {
+    return state.currentRelation.visibleWorkCount;
+  }
+  return DEFAULT_RELATION_WORK_LIMIT;
+}
+
+function renderRelationMoreButton(type, id, visibleCount, totalCount) {
+  if (totalCount <= visibleCount) {
+    return "";
+  }
+  const nextCount = Math.min(totalCount, visibleCount + RELATION_WORK_INCREMENT);
+  const label = state.lang === "ko"
+    ? `더보기 ${nextCount}/${totalCount}`
+    : `Show more ${nextCount}/${totalCount}`;
+  return `
+    <div class="relation-more-row">
+      <button class="ghost-btn relation-more-btn" type="button" data-relation-type="${escapeHtml(type)}" data-relation-more-works="${escapeHtml(String(id))}">
+        ${escapeHtml(label)}
+      </button>
+    </div>
+  `;
 }
 
 function favoriteScopeMatches(info) {
@@ -397,7 +605,11 @@ function saveFavoriteSet(set) {
 
 function getPersonFavoriteSet() {
   try {
-    return new Set(JSON.parse(localStorage.getItem(PERSON_FAVORITES_STORAGE_KEY) || "[]"));
+    return new Set(
+      JSON.parse(localStorage.getItem(PERSON_FAVORITES_STORAGE_KEY) || "[]")
+        .map((personId) => canonicalPersonId(personId))
+        .filter(Boolean),
+    );
   } catch {
     return new Set();
   }
@@ -718,10 +930,13 @@ async function loadData() {
   state.dataset = payload;
   state.entries = (payload.entries || []).map(normalizeEntry).sort(compareEntries);
   state.entryIndex = new Map(state.entries.map((entry) => [entry.id, entry]));
-  state.peopleIndex = new Map((((payload.indexes || {}).people) || []).map((person) => [String(person.id), person]));
+  const mergedPeople = mergePeopleIndex((((payload.indexes || {}).people) || []));
+  state.peopleIndex = mergedPeople.peopleMap;
+  state.personAliasIndex = mergedPeople.aliasMap;
+  migratePersonFavoritesStorage();
   state.studioIndex = buildStudioIndex(state.entries);
-  state.activeCount = state.entries.filter((entry) => !entry.finished && !isMovie(entry)).length;
-  state.finishedCount = state.entries.filter((entry) => entry.finished && !isMovie(entry)).length;
+  state.activeCount = state.entries.filter((entry) => statusPriority(entry) === 0 && !isMovie(entry)).length;
+  state.finishedCount = state.entries.filter((entry) => entry.finished).length;
   render();
 }
 
@@ -763,14 +978,14 @@ function getFavoriteRelationInfo(entry, favorites = getFavoriteSet(), personFavo
   const studios = [];
 
   (entry.extensions?.credits?.characters || []).forEach((item) => {
-    const personId = String(item.voice_actor_mal_id || "");
+    const personId = canonicalPersonId(item.voice_actor_mal_id);
     if (personId && personFavorites.has(personId)) {
       cast.push(formatDisplayName(item.voice_actor_name_ja, item.voice_actor_name));
     }
   });
 
   (entry.extensions?.credits?.staff || []).forEach((item) => {
-    const personId = String(item.person_mal_id || "");
+    const personId = canonicalPersonId(item.person_mal_id);
     if (personId && personFavorites.has(personId)) {
       staff.push(`${formatDisplayName(item.name_ja, item.name)}${item.role ? ` / ${item.role}` : ""}`);
     }
@@ -991,6 +1206,7 @@ function updateStaticText() {
   document.getElementById("favorites-title").textContent = state.lang === "ko" ? "좋아요 리스트" : "Favorite List";
   document.getElementById("favorites-close").textContent = t("close");
   document.getElementById("detail-close").textContent = t("close");
+  document.getElementById("relation-close").textContent = t("close");
   document.getElementById("lang-toggle").textContent = state.lang === "ko" ? "EN" : "KO";
   document.getElementById("total-count").textContent = formatEntryCount(state.activeCount || 0);
   document.getElementById("finished-total").textContent = formatEntryCount(state.finishedCount || 0);
@@ -998,7 +1214,7 @@ function updateStaticText() {
   document.getElementById("finished-note").textContent = finishedMetaNote();
   document.getElementById("meta-status-main").textContent = formatGeneratedAt(state.dataset?.generated_at);
   document.getElementById("meta-status-sub").textContent = metaStatusSubtext();
-  document.getElementById("search-input").value = state.search;
+  document.getElementById("search-input").value = state.searchDraft;
   document.getElementById("favorites-only").checked = state.favoritesOnly;
 }
 
@@ -1038,16 +1254,12 @@ function renderMediaFilters() {
 
 function renderFavoriteScopeFilters() {
   const target = document.getElementById("favorite-scope-filters");
-  if (!state.favoritesOnly) {
-    target.classList.add("hidden");
-    target.innerHTML = "";
-    return;
-  }
-  target.classList.remove("hidden");
+  const row = document.getElementById("favorite-scope-row");
   target.innerHTML = FAVORITE_SCOPE_ORDER.map((scope) => {
     const activeClass = state.selectedFavoriteScopes.includes(scope) ? "is-active" : "";
     return `<button class="day-chip ${activeClass}" type="button" data-favorite-scope="${scope}">${escapeHtml(favoriteScopeLabel(scope))}</button>`;
   }).join("");
+  row.classList.toggle("is-inactive", !state.favoritesOnly);
 }
 
 function renderSummaryStrip(activeEntries, finishedMatches) {
@@ -1177,7 +1389,8 @@ function renderListPeopleChips(items, type, favoriteSet) {
   }
 
   const markup = items.map((item) => {
-    const personId = type === "cast" ? String(item.voice_actor_mal_id || "") : String(item.person_mal_id || "");
+    const rawPersonId = type === "cast" ? String(item.voice_actor_mal_id || "") : String(item.person_mal_id || "");
+    const personId = canonicalPersonId(rawPersonId);
     const label = type === "cast"
       ? `${formatDisplayName(item.character_name_ja, item.character_name)} / ${formatDisplayName(item.voice_actor_name_ja, item.voice_actor_name)}`
       : `${formatDisplayName(item.name_ja, item.name)} / ${item.role || "-"}`;
@@ -1185,7 +1398,12 @@ function renderListPeopleChips(items, type, favoriteSet) {
       return `<span class="credit-chip person-inline-chip">${escapeHtml(label)}</span>`;
     }
     const activeClass = favoriteSet.has(personId) ? "is-active" : "";
-    return `<button class="credit-chip credit-toggle person-inline-chip ${activeClass}" type="button" data-person-favorite-id="${escapeHtml(personId)}">${escapeHtml(label)}</button>`;
+    return `
+      <span class="inline-chip-row">
+        <button class="credit-chip person-inline-chip person-open-chip" type="button" data-open-person="${escapeHtml(personId)}">${escapeHtml(label)}</button>
+        <button class="credit-chip credit-toggle chip-favorite-btn ${activeClass}" type="button" data-person-favorite-id="${escapeHtml(personId)}" aria-label="Toggle person favorite">★</button>
+      </span>
+    `;
   }).join("");
 
   return `<span class="person-inline-list">${markup}</span>`;
@@ -1201,7 +1419,12 @@ function renderStudioFavoriteChips(studios, favoriteSet, limit = studios.length)
       return "";
     }
     const activeClass = favoriteSet.has(name) ? "is-active" : "";
-    return `<button class="credit-chip credit-toggle studio-inline-chip ${activeClass}" type="button" data-studio-favorite-name="${escapeHtml(name)}">${escapeHtml(name)}</button>`;
+    return `
+      <span class="inline-chip-row">
+        <button class="credit-chip studio-inline-chip studio-open-chip" type="button" data-open-studio="${escapeHtml(name)}">${escapeHtml(name)}</button>
+        <button class="credit-chip credit-toggle chip-favorite-btn ${activeClass}" type="button" data-studio-favorite-name="${escapeHtml(name)}" aria-label="Toggle studio favorite">★</button>
+      </span>
+    `;
   }).filter(Boolean).join("");
   return `<span class="person-inline-list studio-inline-list">${markup}</span>`;
 }
@@ -1532,12 +1755,12 @@ function renderFavoritesModal() {
   });
 
   const renderPersonCard = (person, type) => {
-    const relevantRoles = (person.roles || [])
-      .filter((item) => type === "cast" ? item.kind === "voice_actor" : item.kind === "staff")
-      .slice(0, 4);
+    const allRelevantRoles = (person.roles || [])
+      .filter((item) => type === "cast" ? item.kind === "voice_actor" : item.kind === "staff");
+    const relevantRoles = allRelevantRoles.slice(0, 4);
     const summary = type === "cast"
-      ? [...new Set(relevantRoles.map((item) => formatDisplayName(item.character_name_ja, item.character_name)).filter(Boolean))].slice(0, 2).join(" / ")
-      : [...new Set(relevantRoles.map((item) => item.role).filter(Boolean))].slice(0, 2).join(" / ");
+      ? [...new Set(allRelevantRoles.map((item) => formatDisplayName(item.character_name_ja, item.character_name)).filter(Boolean))].slice(0, 2).join(" / ")
+      : [...new Set(allRelevantRoles.map((item) => item.role).filter(Boolean))].slice(0, 2).join(" / ");
     const titleChips = relevantRoles.map((item) => {
       const entry = state.entryIndex.get(item.entry_id);
       if (!entry) {
@@ -1690,9 +1913,9 @@ function renderFavoritesModal() {
   });
 
   const renderPersonCard = (person, type) => {
-    const relevantRoles = (person.roles || [])
-      .filter((item) => type === "cast" ? item.kind === "voice_actor" : item.kind === "staff")
-      .slice(0, 4);
+    const allRelevantRoles = (person.roles || [])
+      .filter((item) => type === "cast" ? item.kind === "voice_actor" : item.kind === "staff");
+    const relevantRoles = allRelevantRoles.slice(0, 4);
     const summary = type === "cast"
       ? [...new Set(relevantRoles.map((item) => formatDisplayName(item.character_name_ja, item.character_name)).filter(Boolean))].slice(0, 2).join(" / ")
       : [...new Set(relevantRoles.map((item) => item.role).filter(Boolean))].slice(0, 2).join(" / ");
@@ -1703,19 +1926,22 @@ function renderFavoritesModal() {
       }
       const title = entry.titles?.ja || entry.titles?.en || entry.id;
       const sub = type === "cast" ? formatDisplayName(item.character_name_ja, item.character_name) : (item.role || "");
-      return `<span class="person-work-chip">${escapeHtml(title)}${sub ? `<small>${escapeHtml(sub)}</small>` : ""}</span>`;
-    }).filter(Boolean).join("");
+      return `<button class="person-work-chip" type="button" data-open-details="${escapeHtml(item.entry_id)}">${escapeHtml(title)}${sub ? `<small>${escapeHtml(sub)}</small>` : ""}</button>`;
+    }).filter(Boolean);
+    if (allRelevantRoles.length > relevantRoles.length) {
+      titleChips.push(`<button class="person-work-chip person-more-chip" type="button" data-open-person="${escapeHtml(person.id)}">${escapeHtml(state.lang === "ko" ? `전체 보기 +${allRelevantRoles.length - relevantRoles.length}` : `See all +${allRelevantRoles.length - relevantRoles.length}`)}</button>`);
+    }
     return `
       <article class="person-card">
         <div class="person-card-top">
           <div class="person-head-copy">
-            <strong>${escapeHtml(formatDisplayName(person.name_ja, person.name))}</strong>
+            <button class="person-link-button" type="button" data-open-person="${escapeHtml(person.id)}">${escapeHtml(formatDisplayName(person.name_ja, person.name))}</button>
             ${summary ? `<p class="person-meta">${escapeHtml(summary)}</p>` : ""}
           </div>
           <button class="favorite-chip is-active" type="button" data-person-favorite-id="${escapeHtml(person.id)}">★</button>
         </div>
         <p class="person-meta">${escapeHtml(worksCountLabel(person.entry_ids?.length || 0))}</p>
-        ${titleChips ? `<div class="person-work-list">${titleChips}</div>` : ""}
+        ${titleChips.length ? `<div class="person-work-list">${titleChips.join("")}</div>` : ""}
       </article>
     `;
   };
@@ -1777,22 +2003,25 @@ function renderFavoritesModal() {
       ${studios.length
         ? `<div class="people-grid">
             ${studios.map((studio) => {
-              const titleChips = (studio.entry_ids || [])
+              const allEntryIds = studio.entry_ids || [];
+              const titleChips = allEntryIds
                 .slice(0, 4)
                 .map((entryId) => state.entryIndex.get(entryId))
                 .filter(Boolean)
-                .map((entry) => `<span class="person-work-chip">${escapeHtml(entry.titles?.ja || entry.titles?.en || entry.id)}</span>`)
-                .join("");
+                .map((entry) => `<button class="person-work-chip" type="button" data-open-details="${escapeHtml(entry.id)}">${escapeHtml(entry.titles?.ja || entry.titles?.en || entry.id)}</button>`);
+              if (allEntryIds.length > 4) {
+                titleChips.push(`<button class="person-work-chip person-more-chip" type="button" data-open-studio="${escapeHtml(studio.name)}">${escapeHtml(state.lang === "ko" ? `전체 보기 +${allEntryIds.length - 4}` : `See all +${allEntryIds.length - 4}`)}</button>`);
+              }
               return `
                 <article class="person-card studio-card">
                   <div class="person-card-top">
                     <div class="person-head-copy">
-                      <strong>${escapeHtml(studio.name)}</strong>
+                      <button class="person-link-button" type="button" data-open-studio="${escapeHtml(studio.name)}">${escapeHtml(studio.name)}</button>
                     </div>
                     <button class="favorite-chip is-active" type="button" data-studio-favorite-name="${escapeHtml(studio.name)}">★</button>
                   </div>
                   <p class="person-meta">${escapeHtml(worksCountLabel(studio.entry_ids?.length || 0))}</p>
-                  ${titleChips ? `<div class="person-work-list">${titleChips}</div>` : ""}
+                  ${titleChips.length ? `<div class="person-work-list">${titleChips.join("")}</div>` : ""}
                 </article>
               `;
             }).join("")}
@@ -1809,6 +2038,239 @@ function renderCreditsSection(items, formatter, emptyText) {
     return `<div class="empty-state">${escapeHtml(emptyText)}</div>`;
   }
   return `<div class="detail-credit-list">${items.map(formatter).join("")}</div>`;
+}
+
+function bringModalToFront(name) {
+  const modal = document.getElementById(`${name}-modal`);
+  if (!modal) {
+    return;
+  }
+  modalStackCounter += 2;
+  modal.style.zIndex = String(modalStackCounter);
+}
+
+function openPersonModal(personId) {
+  const person = state.peopleIndex.get(String(personId || ""));
+  if (!person) {
+    return;
+  }
+  const visibleWorkCount = relationWorkLimit("person", person.id);
+  state.currentRelation = { type: "person", id: String(person.id), visibleWorkCount };
+
+  const relevantEntries = [...new Set((person.entry_ids || []))]
+    .map((entryId) => state.entryIndex.get(entryId))
+    .filter(Boolean)
+    .sort(compareEntries);
+  const voiceRoles = (person.roles || []).filter((item) => item.kind === "voice_actor");
+  const staffRoles = (person.roles || []).filter((item) => item.kind === "staff");
+  const isFavorite = getPersonFavoriteSet().has(String(person.id));
+
+  document.getElementById("relation-kicker").textContent = state.lang === "ko" ? "인물 페이지" : "Person";
+  document.getElementById("relation-title").textContent = formatDisplayName(person.name_ja, person.name);
+  document.getElementById("relation-subtitle").textContent = state.lang === "ko"
+    ? `${person.entry_ids?.length || 0}작품 참여`
+    : `${person.entry_ids?.length || 0} related works`;
+
+  const castMarkup = voiceRoles.length
+    ? `<div class="relation-role-list">${voiceRoles.slice(0, 24).map((item) => {
+      const entry = state.entryIndex.get(item.entry_id);
+      const title = entry?.titles?.ja || entry?.titles?.en || item.entry_id;
+      return `
+        <button class="relation-role-item" type="button" data-open-details="${escapeHtml(item.entry_id)}">
+          <strong>${escapeHtml(title)}</strong>
+          <span>${escapeHtml(formatDisplayName(item.character_name_ja, item.character_name))}</span>
+        </button>
+      `;
+    }).join("")}</div>`
+    : renderEmpty(t("noCast"));
+
+  const staffMarkup = staffRoles.length
+    ? `<div class="relation-role-list">${staffRoles.slice(0, 24).map((item) => {
+      const entry = state.entryIndex.get(item.entry_id);
+      const title = entry?.titles?.ja || entry?.titles?.en || item.entry_id;
+      return `
+        <button class="relation-role-item" type="button" data-open-details="${escapeHtml(item.entry_id)}">
+          <strong>${escapeHtml(title)}</strong>
+          <span>${escapeHtml(item.role || "-")}</span>
+        </button>
+      `;
+    }).join("")}</div>`
+    : renderEmpty(t("noStaff"));
+
+  document.getElementById("relation-body").innerHTML = `
+    <section class="detail-section">
+      <div class="relation-head-row">
+        <div class="detail-pills">
+          <span class="pill">${escapeHtml(state.lang === "ko" ? (voiceRoles.length ? "캐스트" : "스태프") : (voiceRoles.length ? "Cast" : "Staff"))}</span>
+          <span class="pill">${escapeHtml(state.lang === "ko" ? `${person.entry_ids?.length || 0}작품` : `${person.entry_ids?.length || 0} works`)}</span>
+        </div>
+        <button class="favorite-btn ${isFavorite ? "is-active" : ""}" type="button" data-person-favorite-id="${escapeHtml(person.id)}">★</button>
+      </div>
+    </section>
+    ${voiceRoles.length ? `<section class="detail-section"><h3>${escapeHtml(state.lang === "ko" ? "캐스트 참여작" : "Cast Credits")}</h3>${castMarkup}</section>` : ""}
+    ${staffRoles.length ? `<section class="detail-section"><h3>${escapeHtml(state.lang === "ko" ? "스태프 참여작" : "Staff Credits")}</h3>${staffMarkup}</section>` : ""}
+    <section class="detail-section">
+      <h3>${escapeHtml(state.lang === "ko" ? "관련 작품" : "Related Works")}</h3>
+      <div class="finished-grid">
+        ${relevantEntries.slice(0, visibleWorkCount).map((entry) => renderAnimeCard(entry, { finished: entry.finished, variant: isMovie(entry) ? "movie" : (entry.finished ? "finished" : "default") })).join("")}
+      </div>
+      ${renderRelationMoreButton("person", person.id, visibleWorkCount, relevantEntries.length)}
+    </section>
+  `;
+
+  document.getElementById("relation-modal").classList.remove("hidden");
+  document.getElementById("relation-modal").setAttribute("aria-hidden", "false");
+  bringModalToFront("relation");
+}
+
+function openStudioModal(studioName) {
+  const studio = state.studioIndex.get(String(studioName || "").trim());
+  if (!studio) {
+    return;
+  }
+  const visibleWorkCount = relationWorkLimit("studio", studio.name);
+  state.currentRelation = { type: "studio", id: studio.name, visibleWorkCount };
+
+  const relatedEntries = [...new Set(studio.entry_ids || [])]
+    .map((entryId) => state.entryIndex.get(entryId))
+    .filter(Boolean)
+    .sort(compareEntries);
+  const isFavorite = getStudioFavoriteSet().has(studio.name);
+
+  document.getElementById("relation-kicker").textContent = state.lang === "ko" ? "회사 페이지" : "Studio";
+  document.getElementById("relation-title").textContent = studio.name;
+  document.getElementById("relation-subtitle").textContent = state.lang === "ko"
+    ? `${studio.entry_ids?.length || 0}작품 관련`
+    : `${studio.entry_ids?.length || 0} related works`;
+
+  document.getElementById("relation-body").innerHTML = `
+    <section class="detail-section">
+      <div class="relation-head-row">
+        <div class="detail-pills">
+          <span class="pill">${escapeHtml(state.lang === "ko" ? "회사" : "Studio")}</span>
+          <span class="pill">${escapeHtml(state.lang === "ko" ? `${studio.entry_ids?.length || 0}작품` : `${studio.entry_ids?.length || 0} works`)}</span>
+        </div>
+        <button class="favorite-btn ${isFavorite ? "is-active" : ""}" type="button" data-studio-favorite-name="${escapeHtml(studio.name)}">★</button>
+      </div>
+    </section>
+    <section class="detail-section">
+      <h3>${escapeHtml(state.lang === "ko" ? "관련 작품" : "Related Works")}</h3>
+      <div class="finished-grid">
+        ${relatedEntries.slice(0, visibleWorkCount).map((entry) => renderAnimeCard(entry, { finished: entry.finished, variant: isMovie(entry) ? "movie" : (entry.finished ? "finished" : "default") })).join("")}
+      </div>
+      ${renderRelationMoreButton("studio", studio.name, visibleWorkCount, relatedEntries.length)}
+    </section>
+  `;
+
+  document.getElementById("relation-modal").classList.remove("hidden");
+  document.getElementById("relation-modal").setAttribute("aria-hidden", "false");
+  bringModalToFront("relation");
+}
+
+function openPersonModal(personId) {
+  const normalizedId = canonicalPersonId(personId);
+  const person = state.peopleIndex.get(String(normalizedId || ""));
+  if (!person) {
+    return;
+  }
+  const visibleWorkCount = relationWorkLimit("person", person.id);
+  state.currentRelation = { type: "person", id: String(person.id), visibleWorkCount };
+
+  const relevantEntries = [...new Set((person.entry_ids || []))]
+    .map((entryId) => state.entryIndex.get(entryId))
+    .filter(Boolean)
+    .sort(compareEntries);
+  const voiceRoles = (person.roles || []).filter((item) => item.kind === "voice_actor");
+  const staffRoles = (person.roles || []).filter((item) => item.kind === "staff");
+  const isFavorite = getPersonFavoriteSet().has(String(person.id));
+
+  document.getElementById("relation-kicker").textContent = state.lang === "ko" ? "인물 페이지" : "Person";
+  document.getElementById("relation-title").textContent = formatDisplayName(person.name_ja, person.name);
+  document.getElementById("relation-subtitle").textContent = state.lang === "ko"
+    ? `${person.entry_ids?.length || 0}작품 참여`
+    : `${person.entry_ids?.length || 0} related works`;
+
+  const castGroups = [];
+  const castGroupMap = new Map();
+  voiceRoles.forEach((item) => {
+    const key = String(item.character_id || "").trim() || `name:${String(item.character_name_ja || item.character_name || "").trim()}`;
+    if (!castGroupMap.has(key)) {
+      const group = {
+        key,
+        character: formatDisplayName(item.character_name_ja, item.character_name),
+        works: [],
+      };
+      castGroupMap.set(key, group);
+      castGroups.push(group);
+    }
+    const group = castGroupMap.get(key);
+    if (!group.works.some((work) => work.entry_id === item.entry_id)) {
+      const entry = state.entryIndex.get(item.entry_id);
+      group.works.push({
+        entry_id: item.entry_id,
+        title: entry?.titles?.ja || entry?.titles?.en || item.entry_id,
+        subtitle: entry?.titles?.en || "",
+      });
+    }
+  });
+  castGroups.sort((left, right) => (right.works.length - left.works.length) || left.character.localeCompare(right.character));
+
+  const castMarkup = voiceRoles.length
+    ? `<div class="relation-cast-grid">${castGroups.slice(0, 24).map((group) => `
+      <article class="relation-cast-card">
+        <div class="relation-cast-head">
+          <strong>${escapeHtml(group.character)}</strong>
+          <span>${escapeHtml(state.lang === "ko" ? `${group.works.length}작품` : `${group.works.length} works`)}</span>
+        </div>
+        <div class="relation-cast-work-list">
+          ${group.works.map((work) => `
+            <button class="person-work-chip relation-cast-work-chip" type="button" data-open-details="${escapeHtml(work.entry_id)}">
+              ${escapeHtml(work.title)}
+              ${work.subtitle ? `<small>${escapeHtml(work.subtitle)}</small>` : ""}
+            </button>
+          `).join("")}
+        </div>
+      </article>
+    `).join("")}</div>`
+    : renderEmpty(t("noCast"));
+
+  const staffMarkup = staffRoles.length
+    ? `<div class="relation-role-list">${staffRoles.slice(0, 24).map((item) => {
+      const entry = state.entryIndex.get(item.entry_id);
+      const title = entry?.titles?.ja || entry?.titles?.en || item.entry_id;
+      return `
+        <button class="relation-role-item" type="button" data-open-details="${escapeHtml(item.entry_id)}">
+          <strong>${escapeHtml(title)}</strong>
+          <span>${escapeHtml(item.role || "-")}</span>
+        </button>
+      `;
+    }).join("")}</div>`
+    : renderEmpty(t("noStaff"));
+
+  document.getElementById("relation-body").innerHTML = `
+    <section class="detail-section">
+      <div class="relation-head-row">
+        <div class="detail-pills">
+          <span class="pill">${escapeHtml(state.lang === "ko" ? (voiceRoles.length ? "캐스트" : "스태프") : (voiceRoles.length ? "Cast" : "Staff"))}</span>
+          <span class="pill">${escapeHtml(state.lang === "ko" ? `${person.entry_ids?.length || 0}작품` : `${person.entry_ids?.length || 0} works`)}</span>
+        </div>
+        <button class="favorite-btn ${isFavorite ? "is-active" : ""}" type="button" data-person-favorite-id="${escapeHtml(person.id)}">★</button>
+      </div>
+    </section>
+    ${voiceRoles.length ? `<section class="detail-section"><h3>${escapeHtml(state.lang === "ko" ? "캐스트 참여작" : "Cast Credits")}</h3>${castMarkup}</section>` : ""}
+    ${staffRoles.length ? `<section class="detail-section"><h3>${escapeHtml(state.lang === "ko" ? "스태프 참여작" : "Staff Credits")}</h3>${staffMarkup}</section>` : ""}
+    <section class="detail-section">
+      <h3>${escapeHtml(state.lang === "ko" ? "관련 작품" : "Related Works")}</h3>
+      <div class="finished-grid">
+        ${relevantEntries.slice(0, visibleWorkCount).map((entry) => renderAnimeCard(entry, { finished: entry.finished, variant: isMovie(entry) ? "movie" : (entry.finished ? "finished" : "default") })).join("")}
+      </div>
+      ${renderRelationMoreButton("person", person.id, visibleWorkCount, relevantEntries.length)}
+    </section>
+  `;
+
+  document.getElementById("relation-modal").classList.remove("hidden");
+  document.getElementById("relation-modal").setAttribute("aria-hidden", "false");
+  bringModalToFront("relation");
 }
 
 function openDetailModal(entryId) {
@@ -1875,12 +2337,17 @@ function openDetailModal(entryId) {
       ${renderCreditsSection(
         staff.slice(0, 18),
         (item) => {
-          const personId = String(item.person_mal_id || "");
+          const personId = canonicalPersonId(item.person_mal_id);
           const activeClass = personId && personFavorites.has(personId) ? "is-active" : "";
           if (!personId) {
             return `<span class="credit-chip">${escapeHtml(formatDisplayName(item.name_ja, item.name))} / ${escapeHtml(item.role || "-")}</span>`;
           }
-          return `<button class="credit-chip credit-toggle ${activeClass}" type="button" data-person-favorite-id="${escapeHtml(personId)}">${escapeHtml(formatDisplayName(item.name_ja, item.name))} / ${escapeHtml(item.role || "-")}</button>`;
+          return `
+            <span class="inline-chip-row detail-credit-row">
+              <button class="credit-chip person-open-chip" type="button" data-open-person="${escapeHtml(personId)}">${escapeHtml(formatDisplayName(item.name_ja, item.name))} / ${escapeHtml(item.role || "-")}</button>
+              <button class="credit-chip credit-toggle chip-favorite-btn ${activeClass}" type="button" data-person-favorite-id="${escapeHtml(personId)}" aria-label="Toggle person favorite">★</button>
+            </span>
+          `;
         },
         t("noStaff"),
       )}
@@ -1890,12 +2357,17 @@ function openDetailModal(entryId) {
       ${renderCreditsSection(
         characters.slice(0, 18),
         (item) => {
-          const personId = String(item.voice_actor_mal_id || "");
+          const personId = canonicalPersonId(item.voice_actor_mal_id);
           const activeClass = personId && personFavorites.has(personId) ? "is-active" : "";
           if (!personId) {
             return `<span class="credit-chip">${escapeHtml(formatDisplayName(item.character_name_ja, item.character_name))} / ${escapeHtml(formatDisplayName(item.voice_actor_name_ja, item.voice_actor_name))}</span>`;
           }
-          return `<button class="credit-chip credit-toggle ${activeClass}" type="button" data-person-favorite-id="${escapeHtml(personId)}">${escapeHtml(formatDisplayName(item.character_name_ja, item.character_name))} / ${escapeHtml(formatDisplayName(item.voice_actor_name_ja, item.voice_actor_name))}</button>`;
+          return `
+            <span class="inline-chip-row detail-credit-row">
+              <button class="credit-chip person-open-chip" type="button" data-open-person="${escapeHtml(personId)}">${escapeHtml(formatDisplayName(item.character_name_ja, item.character_name))} / ${escapeHtml(formatDisplayName(item.voice_actor_name_ja, item.voice_actor_name))}</button>
+              <button class="credit-chip credit-toggle chip-favorite-btn ${activeClass}" type="button" data-person-favorite-id="${escapeHtml(personId)}" aria-label="Toggle person favorite">★</button>
+            </span>
+          `;
         },
         t("noCast"),
       )}
@@ -1920,6 +2392,7 @@ function openDetailModal(entryId) {
 
   document.getElementById("detail-modal").classList.remove("hidden");
   document.getElementById("detail-modal").setAttribute("aria-hidden", "false");
+  bringModalToFront("detail");
 }
 
 function closeModal(name) {
@@ -1930,8 +2403,12 @@ function closeModal(name) {
   if (name === "detail") {
     state.currentDetailEntryId = null;
   }
+  if (name === "relation") {
+    state.currentRelation = null;
+  }
   modal.classList.add("hidden");
   modal.setAttribute("aria-hidden", "true");
+  modal.style.zIndex = "";
 }
 
 function syncViewButtons() {
@@ -1964,6 +2441,23 @@ function syncViewButtons() {
 }
 
 function render() {
+  const detailModal = document.getElementById("detail-modal");
+  const relationModal = document.getElementById("relation-modal");
+  const modalOrder = [];
+  if (state.currentDetailEntryId && detailModal && !detailModal.classList.contains("hidden")) {
+    modalOrder.push({
+      name: "detail",
+      zIndex: Number(detailModal.style.zIndex || 30),
+    });
+  }
+  if (state.currentRelation && relationModal && !relationModal.classList.contains("hidden")) {
+    modalOrder.push({
+      name: "relation",
+      zIndex: Number(relationModal.style.zIndex || 30),
+    });
+  }
+  modalOrder.sort((left, right) => left.zIndex - right.zIndex);
+
   const activeEntries = getActiveEntries();
   const movieEntries = getMovieEntries();
   const finishedMatches = getFinishedSearchMatches();
@@ -1983,9 +2477,18 @@ function render() {
   renderSearchResults(searchResults);
   renderFavoritesModal();
   syncViewButtons();
-  const detailModal = document.getElementById("detail-modal");
-  if (state.currentDetailEntryId && detailModal && !detailModal.classList.contains("hidden")) {
-    openDetailModal(state.currentDetailEntryId);
+  for (const modalInfo of modalOrder) {
+    if (modalInfo.name === "detail" && state.currentDetailEntryId) {
+      openDetailModal(state.currentDetailEntryId);
+      continue;
+    }
+    if (modalInfo.name === "relation" && state.currentRelation) {
+      if (state.currentRelation.type === "person") {
+        openPersonModal(state.currentRelation.id);
+      } else if (state.currentRelation.type === "studio") {
+        openStudioModal(state.currentRelation.id);
+      }
+    }
   }
 }
 
@@ -2001,7 +2504,7 @@ function toggleFavorite(key) {
 }
 
 function togglePersonFavorite(personId) {
-  const normalizedId = String(personId || "");
+  const normalizedId = canonicalPersonId(personId);
   if (!normalizedId) {
     return;
   }
@@ -2051,13 +2554,51 @@ function toggleTheme() {
 }
 
 function bindEvents() {
-  document.getElementById("search-input").addEventListener("input", (event) => {
-    state.search = event.target.value.trim();
-    render();
+  const searchInput = document.getElementById("search-input");
+
+  searchInput.addEventListener("compositionstart", () => {
+    searchComposing = true;
+  });
+
+  searchInput.addEventListener("compositionend", (event) => {
+    searchComposing = false;
+    state.searchDraft = event.target.value;
+    queueSearchCommit();
+  });
+
+  searchInput.addEventListener("input", (event) => {
+    state.searchDraft = event.target.value;
+    if (searchComposing) {
+      return;
+    }
+    queueSearchCommit();
+  });
+
+  searchInput.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") {
+      return;
+    }
+    state.searchDraft = event.target.value;
+    commitSearchDraft();
   });
 
   document.getElementById("favorites-only").addEventListener("change", (event) => {
     state.favoritesOnly = event.target.checked;
+    render();
+  });
+
+  document.getElementById("hero-title").addEventListener("click", () => {
+    state.viewMode = "board";
+    state.scheduleStatus = "airing";
+    state.selectedDay = "ALL";
+    state.selectedSeason = "ALL";
+    state.selectedYear = "ALL";
+    state.selectedMedia = [];
+    state.search = "";
+    state.searchDraft = "";
+    state.favoritesOnly = false;
+    clearSearchCommitTimer();
+    localStorage.setItem(VIEW_STORAGE_KEY, state.viewMode);
     render();
   });
 
@@ -2196,9 +2737,41 @@ function bindEvents() {
       return;
     }
 
+    const personButton = event.target.closest("[data-open-person]");
+    if (personButton) {
+      openPersonModal(personButton.dataset.openPerson);
+      return;
+    }
+
+    const studioButton = event.target.closest("[data-open-studio]");
+    if (studioButton) {
+      openStudioModal(studioButton.dataset.openStudio);
+      return;
+    }
+
+    const relationMoreButton = event.target.closest("[data-relation-more-works]");
+    if (relationMoreButton) {
+      const relationType = relationMoreButton.dataset.relationType;
+      const relationId = relationMoreButton.dataset.relationMoreWorks;
+      const currentCount = Number(state.currentRelation?.visibleWorkCount || DEFAULT_RELATION_WORK_LIMIT);
+      state.currentRelation = {
+        ...(state.currentRelation || {}),
+        type: relationType,
+        id: relationId,
+        visibleWorkCount: currentCount + RELATION_WORK_INCREMENT,
+      };
+      if (relationType === "person") {
+        openPersonModal(relationId);
+      } else if (relationType === "studio") {
+        openStudioModal(relationId);
+      }
+      return;
+    }
+
     if (event.target.closest("#open-favorites")) {
       document.getElementById("favorites-modal").classList.remove("hidden");
       document.getElementById("favorites-modal").setAttribute("aria-hidden", "false");
+      bringModalToFront("favorites");
       return;
     }
 

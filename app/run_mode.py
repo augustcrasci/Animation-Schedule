@@ -3,6 +3,7 @@ from __future__ import annotations
 import sys
 
 from app.calendar_common import has_mal_client_id
+from app.metadata_repair import repair_metadata_year
 from app.refresh_all import main as refresh_all_main
 from app.viewer import main as viewer_main
 
@@ -38,6 +39,10 @@ def main(argv: list[str] | None = None) -> None:
     if mode == "backfill_year":
         require_mal_client_id()
         refresh_all_main(include_forward=False, backfill_per_run_override=4, link_refresh_limit_override=320)
+        return
+    if mode == "repair_metadata_year":
+        require_mal_client_id()
+        repair_metadata_year()
         return
     if mode == "viewer":
         viewer_main()

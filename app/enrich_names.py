@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 from collections import Counter
 
 from app.anilist_client import AniListClient, AniListClientError
@@ -14,6 +14,7 @@ from app.mal_scraper import extract_character_name_ja, extract_person_name_ja
 NAME_MAP_DIR = DATA_DIR / "name_maps"
 PEOPLE_MAP_FILE = NAME_MAP_DIR / "people_ja.json"
 CHARACTER_MAP_FILE = NAME_MAP_DIR / "characters_ja.json"
+ProgressCallback = Callable[[str, str], None]
 
 
 def ensure_map_dir() -> None:
@@ -215,11 +216,15 @@ def enrich_maps_from_mal_pages(
     payload: dict[str, Any],
     people_map: dict[str, str],
     character_map: dict[str, str],
+    *,
+    year_filter: int | None = None,
 ) -> bool:
     people_counter: Counter[str] = Counter()
     character_counter: Counter[str] = Counter()
 
     for entry in payload.get("entries", []):
+        if year_filter is not None and int((entry.get("season") or {}).get("year") or 0) != int(year_filter):
+            continue
         credits = ((entry.get("extensions") or {}).get("credits") or {})
         for item in credits.get("characters") or []:
             character_id = str(item.get("character_mal_id") or "").strip()
@@ -242,6 +247,8 @@ def enrich_maps_from_mal_pages(
     changed = False
 
     for person_id, _ in people_counter.most_common(max_people):
+        if not str(person_id).isdigit():
+            continue
         try:
             page_html = client.get_person_page_html(int(person_id))
         except MalClientError:
@@ -252,6 +259,8 @@ def enrich_maps_from_mal_pages(
             changed = True
 
     for character_id, _ in character_counter.most_common(max_characters):
+        if not str(character_id).isdigit():
+            continue
         try:
             page_html = client.get_character_page_html(int(character_id))
         except MalClientError:
@@ -264,7 +273,11 @@ def enrich_maps_from_mal_pages(
     return changed
 
 
-def enrich_names() -> bool:
+def enrich_names(
+    *,
+    year_filter: int | None = None,
+    progress_callback: ProgressCallback | None = None,
+) -> bool:
     ensure_map_dir()
     payload = load_json(SOURCE_DATA_FILE, {})
     if not payload:
@@ -275,14 +288,24 @@ def enrich_names() -> bool:
     changed = False
 
     try:
-        if enrich_maps_from_mal_pages(payload, people_map, character_map):
+        if progress_callback:
+            label = f"{year_filter}" if year_filter is not None else "all"
+            progress_callback("Enriching Japanese names.", f"Preparing MAL name cache ({label}).")
+        if enrich_maps_from_mal_pages(payload, people_map, character_map, year_filter=year_filter):
             changed = True
     except MalClientError:
         pass
 
     client = AniListClient()
+    target_entries = [
+        entry for entry in payload.get("entries", [])
+        if year_filter is None or int((entry.get("season") or {}).get("year") or 0) == int(year_filter)
+    ]
 
-    for entry in payload.get("entries", []):
+    for index, entry in enumerate(target_entries, start=1):
+        if progress_callback and index == 1:
+            label = f"{year_filter}" if year_filter is not None else "all"
+            progress_callback("Enriching Japanese names.", f"Applying cached/native names ({label}).")
         if apply_cached_names(entry, people_map, character_map):
             changed = True
         if not should_enrich_names(entry):
@@ -293,6 +316,8 @@ def enrich_names() -> bool:
         anime_id = anime_id_from_entry(entry)
         if anime_id is None:
             continue
+        if progress_callback:
+            progress_callback("Enriching Japanese names.", f"{index}/{len(target_entries)} -> MAL {anime_id}")
         try:
             media = client.get_media_name_bundle(anime_id)
         except AniListClientError:
